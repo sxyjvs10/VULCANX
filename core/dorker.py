@@ -1,4 +1,8 @@
 import urllib.parse
+import requests
+import time
+from bs4 import BeautifulSoup
+import random
 
 class GoogleDorker:
     def __init__(self, domain):
@@ -41,3 +45,53 @@ class GoogleDorker:
         for title, link in self.generate_links():
             print(f"  [+] {title}:")
             print(f"      {link}")
+
+    def execute_dorks(self):
+        """
+        Executes the dorks dynamically using a headless scraper (DuckDuckGo HTML).
+        Returns a list of found sensitive URLs.
+        """
+        print(f"\n[*] Executing {len(self.dorks)} Dorks dynamically via stealth scraping...")
+        found_urls = []
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        search_url = "https://html.duckduckgo.com/html/"
+
+        for title, query in self.dorks.items():
+            data = {'q': query}
+            try:
+                # Add random sleep to prevent rate limiting
+                time.sleep(random.uniform(1.5, 3.5))
+                
+                response = requests.post(search_url, headers=headers, data=data, timeout=10)
+                
+                if response.status_code == 200:
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    results = soup.find_all('a', class_='result__url')
+                    
+                    if results:
+                        print(f"  [!] {title} ({len(results)} results found)")
+                        for a in results:
+                            link = a.get('href')
+                            if link:
+                                if link.startswith('//duckduckgo.com/l/?uddg='):
+                                    link = urllib.parse.unquote(link.split('uddg=')[1].split('&')[0])
+                                print(f"      -> {link}")
+                                if link not in found_urls:
+                                    found_urls.append(link)
+                    else:
+                        print(f"  [+] {title} (0 results)")
+                        
+                elif response.status_code == 403 or response.status_code == 429:
+                    print(f"  [-] Rate limit exceeded. Search engine is blocking requests.")
+                    print("  [-] Please wait a few minutes or switch networks.")
+                    break
+                else:
+                    print(f"  [-] Error {response.status_code} querying {title}")
+                
+            except Exception as e:
+                print(f"  [-] Failed to execute query '{title}': {e}")
+        
+        return found_urls

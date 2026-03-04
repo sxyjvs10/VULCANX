@@ -4,6 +4,7 @@ from .strategies.keyforge_strategy import KeyForgeStrategy
 from .strategies.binary_chain import BinaryChainStrategy
 from .strategies.tkl_strategy import TklStrategy
 from .strategies.xor_obfuscation import XORObfuscationStrategy
+from .strategies.javascript_obfuscator import JavascriptObfuscatorStrategy
 
 class DecryptionManager:
     def __init__(self):
@@ -12,6 +13,7 @@ class DecryptionManager:
 
     def _register_strategies(self):
         # Add strategies here. Order matters (most specific to least specific).
+        self.strategies.append(JavascriptObfuscatorStrategy())
         self.strategies.append(TklStrategy())
         self.strategies.append(KeyForgeStrategy())
         self.strategies.append(XORObfuscationStrategy())

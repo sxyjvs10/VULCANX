@@ -46,7 +46,7 @@ def main():
     parser.add_argument("--scan-all", action="store_true", help="Run ALL strategies (Static, Dynamic) to find keys.")
     
     # Discovery Features
-    parser.add_argument("--dorks", action="store_true", help="Generate and display Google Dorks for the target domain")
+    parser.add_argument("--dorks", action="store_true", help="Generate and display Google Dorks, and dynamically execute them without API keys")
     parser.add_argument("--hidden-scan", action="store_true", help="Perform a directory brute-force scan to find hidden files/folders")
     parser.add_argument("--wordlist", help="Custom wordlist file for --hidden-scan (optional)")
 
@@ -63,10 +63,17 @@ def main():
             from urllib.parse import urlparse
             domain = urlparse(args.url).netloc
             dorker = GoogleDorker(domain)
-            dorker.print_dorks()
+            print(f"[*] Dynamically executing Dorks for {domain}...")
+            found_urls = dorker.execute_dorks()
+            if found_urls:
+                print(f"\n[+] Dynamic Dorking Complete. Found {len(found_urls)} sensitive links:")
+                for url in found_urls:
+                    print(f"    -> {url}")
+            else:
+                print("\n[-] Dynamic Dorking Complete. No sensitive links found.")
             print("-" * 60)
         except Exception as e:
-            print(f"[-] Google Dork generation failed: {e}")
+            print(f"[-] Dork generation failed: {e}")
 
     if args.hidden_scan:
         print("[*] Starting Hidden Directory Scan...")
@@ -108,9 +115,14 @@ def main():
             from urllib.parse import urlparse
             domain = urlparse(args.url).netloc
             dorker = GoogleDorker(domain)
-            dorker.print_dorks()
+            print(f"[*] Dynamically executing Dorks for {domain}...")
+            found_urls = dorker.execute_dorks()
+            if found_urls:
+                print(f"\n[+] Dynamic Dorking Complete. Found {len(found_urls)} sensitive links:")
+                for url in found_urls:
+                    print(f"    -> {url}")
         except Exception as e:
-            print(f"[-] Dork generation failed: {e}")
+            print(f"[-] Dork execution failed: {e}")
 
         print("\n[*] Starting Hidden Directory Scan (Default Wordlist)...")
         try:
@@ -196,27 +208,13 @@ def main():
         finally:
             session_manager_dynamic.close()
 
-        # Final Report
-        print("\n" + "="*60)
-        print("COMPREHENSIVE SCAN COMPLETE")
-        print(f"Static Findings: {findings_summary['static']}")
-        print(f"Dynamic Interceptions: {findings_summary['dynamic']}")
+        # Consolidate Findings for Report
+        all_findings = []
+        if 'static_findings' in locals():
+            all_findings.extend(static_findings)
         
-        if findings_summary["keys_found"]:
-            print("\n[+] CONFIRMED KEYS/SECRETS FOUND:")
-            for k in findings_summary["keys_found"]:
-                print(f"  -> {k}")
-        else:
-            print("\n[-] No obvious keys found across all strategies.")
-
-        # Save Report if requested
-        if args.output:
-            all_findings = []
-            # Add static findings
-            if 'static_findings' in locals():
-                all_findings.extend(static_findings)
-            
-            # Convert dynamic logs to findings objects
+        # Convert dynamic logs to findings objects
+        if 'logs' in locals():
             for log in logs:
                 all_findings.append({
                     'url': args.url,
@@ -229,24 +227,28 @@ def main():
                     'line': 0,
                     'source': 'DYNAMIC'
                 })
-            
-            # Add pattern findings if any (simulated)
-            for k in findings_summary["keys_found"]:
-                if "[Pattern]" in k:
-                     all_findings.append({
-                        'url': args.url,
-                        'type': 'PATTERN_MATCH',
-                        'severity': 'CRITICAL',
-                        'description': 'Specific obfuscation pattern matched and deobfuscated.',
-                        'remediation': 'Revoke the key.',
-                        'match': k,
-                        'context': k,
-                        'line': 0,
-                        'source': 'PATTERN'
-                    })
+        
+        # Filter Findings by Severity
+        severity_map = {'INFO': 0, 'LOW': 1, 'MEDIUM': 2, 'HIGH': 3, 'CRITICAL': 4, 'UNKNOWN': 0}
+        min_score = severity_map.get(args.min_severity, 0)
+        
+        filtered_findings = [
+            f for f in all_findings 
+            if severity_map.get(f.get('severity', 'INFO'), 0) >= min_score
+        ]
 
-            print(f"[*] Saving comprehensive report to {args.output}...")
-            reporter = Reporter(all_findings, verbose=args.verbose)
+        # Final Report
+        print("\n" + "="*60)
+        print("COMPREHENSIVE SCAN COMPLETE")
+        print(f"Static Findings: {findings_summary['static']}")
+        print(f"Dynamic Interceptions: {findings_summary['dynamic']}")
+        
+        print("\n[*] Generating Comprehensive Report...")
+        reporter = Reporter(filtered_findings, verbose=args.verbose)
+        reporter.print_summary()
+
+        # Save Report if requested
+        if args.output:
             reporter.save(args.output)
         
         sys.exit(0)

@@ -248,13 +248,15 @@ class Crawler:
                     links.append((full_url, next_depth))
             
             # Regex for internal paths in JS or HTML
-            # Look for strings like "/FixedAssetMacom/..."
-            path_pattern = r'["\'](/FixedAssetMacom/[\w/._?=-]+)["\']'
+            # Look for strings like "/api/..." or "/Dashboard/..."
+            path_pattern = r'["\'](/[a-zA-Z0-9_\-./]+)["\']'
             matches = re.findall(path_pattern, html_content)
             for path in matches:
-                full_url = urllib.parse.urljoin(current_url, path)
-                if self.is_internal(full_url):
-                    links.append((full_url, next_depth))
+                # Avoid common false positives like file extensions or single slashes
+                if len(path) > 1 and not path.endswith(('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg')):
+                    full_url = urllib.parse.urljoin(current_url, path)
+                    if self.is_internal(full_url):
+                        links.append((full_url, next_depth))
             
             # Simple JS window.location redirection
             js_loc_pattern = r'window\.location\.href\s*=\s*["\'](.*?)["\']'

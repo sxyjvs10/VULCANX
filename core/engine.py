@@ -59,6 +59,12 @@ class Analyzer:
                 'description': 'Developer comment detected.',
                 'remediation': 'Review comments for sensitive info before deployment.'
             },
+            'USER_REQUESTED_KEY': {
+                'regex': r'7x![\w@#$%^&*!.-]{5,100}',
+                'severity': 'CRITICAL',
+                'description': 'User-specified key pattern (starting with 7x!) detected.',
+                'remediation': 'Rotate this key immediately.'
+            },
             'PASSWORD_FIELD': {
                 'regex': r'type=["\']password["\']',
                 'severity': 'LOW',
@@ -118,6 +124,18 @@ class Analyzer:
                 'severity': 'LOW',
                 'description': 'Google OAuth Client ID detected.',
                 'remediation': 'Verify if this ID is intended to be public.'
+            },
+            'SENSITIVE_PUBLIC_API': {
+                'regex': r'["\'][\w\-./:]*(api/Public|PublicApi|/api/Public)[\w\-./?&=%]*["\']',
+                'severity': 'HIGH',
+                'description': 'Potential sensitive public API endpoint or variable detected.',
+                'remediation': 'Verify if this endpoint or variable name exposes internal API structures.'
+            },
+            'SENSITIVE_CONSTRUCTED_PATH': {
+                'regex': r'\b\w*URL\b\s*\+\s*["\']/?api/[\w/]+["\']',
+                'severity': 'MEDIUM',
+                'description': 'URL path being constructed dynamically with /api/.',
+                'remediation': 'Review dynamic URL construction for potential exposure.'
             },
             'SENSITIVE_API_PATH': {
                 'regex': r'/(api|v1|v2|graphql|swagger|admin)/',
@@ -198,6 +216,12 @@ class Analyzer:
             # 2. Check for IDOR candidates in URL parameters
             self._check_idor(url, source)
 
+            # 2.5 Check for sensitive parameters (Open Redirect, SSRF, LFI)
+            self._check_sensitive_params(url, source)
+
+            # 2.6 Decode Base64/Hex and find sensitive URLs
+            self._decode_and_find_sensitive(url, content, source)
+
             # 3. Check for known vulnerabilities in components
             if self.component_checker:
                 comp_findings = self.component_checker.check(url, content)
@@ -232,6 +256,162 @@ class Analyzer:
                     self.findings.append(finding)
         
         return self.findings
+
+    def _decode_and_find_sensitive(self, url, content, source='STATIC'):
+        """
+        Decodes Base64, Hex, URL-encoded, and Hex-escaped strings found in the content.
+        Checks if they contain sensitive paths like '/api/Public'.
+        """
+        import base64
+        import binascii
+        import urllib.parse
+        
+        # 1. Patterns for obfuscated strings
+        # - Strings in quotes (Base64, Hex, URL-encoded)
+        # - atob('...'), unescape('...'), etc.
+        # - Hex escape sequences: \x61\x70\x69
+        # - fromCharCode(97, 112, 105)
+        
+        # Combined regex for potential encoded strings
+        obf_regex = r'(?:atob|decodeURIComponent|decodeURI|unescape)\s*\(\s*["\']([A-Za-z0-9+/=%]{4,})["\']\s*\)|["\']([A-Za-z0-9+/=]{16,}|[A-Fa-f0-9]{16,}|%[A-Fa-f0-9]{2}[A-Za-z0-9%_.+-]*)["\']'
+        matches = set(re.findall(obf_regex, content))
+        
+        # Hex escape sequences pattern: \xHH\xHH...
+        hex_escape_regex = r'((?:\\x[0-9a-fA-F]{2}){4,})'
+        hex_escapes = re.findall(hex_escape_regex, content)
+        
+        # fromCharCode pattern: fromCharCode(97, 112, ...)
+        char_code_regex = r'fromCharCode\s*\(([\d\s,]+)\)'
+        char_codes = re.findall(char_code_regex, content)
+        
+        # Comma-separated binary-like numbers: "1010100,1101010,..."
+        binary_csv_regex = r'["\']((?:[01]{7,8},)+[01]{7,8})["\']'
+        binary_csvs = re.findall(binary_csv_regex, content)
+        
+        sensitive_keywords = ['/api/public', '/api/', 'http://', 'https://']
+        found_decoded = []
+
+        # Helper to flag findings
+        def flag_finding(original, decoded, enc_type):
+            severity = 'HIGH' if '/api/public' in decoded.lower() else 'MEDIUM'
+            line_idx = content.find(original)
+            line_num = content[:line_idx].count('\n') + 1 if line_idx != -1 else 0
+            
+            self.findings.append({
+                'url': url,
+                'type': 'DEOBFUSCATED_SENSITIVE_URL',
+                'severity': severity,
+                'description': f'Found deobfuscated ({enc_type}) sensitive URL or path.',
+                'remediation': 'Review the decoded path to ensure it does not expose sensitive endpoints.',
+                'match': original[:50] + "..." if len(original) > 50 else original,
+                'context': f"Decoded: {decoded}",
+                'line': line_num,
+                'source': source
+            })
+
+        # Process matches from first regex
+        for m in matches:
+            val = m[0] if m[0] else m[1]
+            if not val: continue
+            
+            # Try URL Decoding
+            if '%' in val:
+                try:
+                    decoded = urllib.parse.unquote(val)
+                    if any(kw in decoded.lower() for kw in sensitive_keywords):
+                        flag_finding(val, f"URL-Decoded: {decoded}", "URL")
+                        continue
+                except: pass
+
+            # Try Base64
+            try:
+                # Basic check for Base64 validity
+                if re.match(r'^[A-Za-z0-9+/=]+$', val):
+                    b64_val = val + '=' * ((4 - len(val) % 4) % 4)
+                    decoded = base64.b64decode(b64_val).decode('utf-8', errors='ignore')
+                    if any(kw in decoded.lower() for kw in sensitive_keywords):
+                        flag_finding(val, f"Base64: {decoded}", "Base64")
+                        continue
+            except: pass
+            
+            # Try Hex
+            try:
+                if re.match(r'^[0-9a-fA-F]{16,}$', val):
+                    decoded = binascii.unhexlify(val).decode('utf-8', errors='ignore')
+                    if any(kw in decoded.lower() for kw in sensitive_keywords):
+                        flag_finding(val, f"Hex: {decoded}", "Hex")
+                        continue
+            except: pass
+
+        # Process Hex Escapes
+        for val in hex_escapes:
+            try:
+                decoded = "".join([chr(int(h[2:], 16)) for h in re.findall(r'\\x[0-9a-fA-F]{2}', val)])
+                if any(kw in decoded.lower() for kw in sensitive_keywords):
+                    flag_finding(val, f"Hex-Escape: {decoded}", "Hex-Escape")
+            except: pass
+
+        # Process fromCharCode
+        for val in char_codes:
+            try:
+                codes = [int(c.strip()) for c in val.split(',')]
+                decoded = "".join([chr(c) for c in codes])
+                if any(kw in decoded.lower() for kw in sensitive_keywords):
+                    flag_finding(val, f"CharCode: {decoded}", "fromCharCode")
+            except: pass
+
+        # Process Binary CSV
+        for val in binary_csvs:
+            try:
+                parts = val.split(',')
+                decoded = "".join([chr(int(p, 2)) for p in parts])
+                if any(kw in decoded.lower() for kw in sensitive_keywords):
+                    flag_finding(val, f"Binary-CSV: {decoded}", "Binary-CSV")
+            except: pass
+
+    def _check_sensitive_params(self, url, source='STATIC'):
+        """
+        Analyzes URL parameters for potential sensitive links like Open Redirect, SSRF, or LFI.
+        """
+        parsed_url = urllib.parse.urlparse(url)
+        params = urllib.parse.parse_qs(parsed_url.query)
+        
+        # Common parameters that accept URLs or paths
+        redirect_params = ['returnurl', 'redirect', 'next', 'url', 'target', 'goto', 'return_url', 'redirect_url', 'forward', 'destination']
+        ssrf_lfi_params = ['file', 'path', 'dir', 'document', 'folder', 'root', 'page', 'doc', 'load', 'read']
+        
+        for param, values in params.items():
+            param_lower = param.lower()
+            
+            for value in values:
+                # 1. Open Redirect
+                if any(s in param_lower for s in redirect_params):
+                    self.findings.append({
+                        'url': url,
+                        'type': 'OPEN_REDIRECT_PARAM',
+                        'severity': 'MEDIUM',
+                        'description': f'Potential Open Redirect parameter "{param}" detected.',
+                        'remediation': 'Ensure the redirect destination is validated against an allowlist.',
+                        'match': f"{param}={value}",
+                        'context': url,
+                        'line': 0,
+                        'source': source
+                    })
+                
+                # 2. SSRF / LFI
+                if any(s == param_lower for s in ssrf_lfi_params):
+                    if '/' in value or '\\' in value or value.startswith('http'):
+                        self.findings.append({
+                            'url': url,
+                            'type': 'POTENTIAL_SSRF_LFI',
+                            'severity': 'HIGH',
+                            'description': f'Potential SSRF/LFI parameter "{param}" detected.',
+                            'remediation': 'Validate and sanitize file paths or URLs provided in parameters.',
+                            'match': f"{param}={value}",
+                            'context': url,
+                            'line': 0,
+                            'source': source
+                        })
 
     def _check_idor(self, url, source='STATIC'):
         """

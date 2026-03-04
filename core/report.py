@@ -14,12 +14,28 @@ GREY = "\033[90m"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 UNDERLINE = "\033[4m"
+BG_RED = "\033[41m"
+BG_YELLOW = "\033[43m"
+BRIGHT_CYAN = "\033[96;1m"
+BRIGHT_MAGENTA = "\033[95;1m"
+BRIGHT_GREEN = "\033[92;1m"
 
 class Reporter:
     def __init__(self, findings, verbose=False):
         self.findings = findings
         self.verbose = verbose
         self.severity_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFO': 4}
+        self.sensitive_keywords = ['api', 'public', 'secret', 'key', 'token', 'auth', 'password', 'admin', 'login', 'crypto', 'encrypt', 'decrypt']
+
+    def _highlight_sensitive(self, text):
+        if not text: return ""
+        import re
+        highlighted = str(text)
+        for kw in self.sensitive_keywords:
+            # Case insensitive replacement with BOLD MAGENTA
+            pattern = re.compile(re.escape(kw), re.IGNORECASE)
+            highlighted = pattern.sub(lambda m: f"{BRIGHT_MAGENTA}{m.group(0)}{RESET}", highlighted)
+        return highlighted
 
     def _get_color(self, severity):
         if severity == 'CRITICAL': return RED + BOLD
@@ -57,6 +73,13 @@ class Reporter:
         print(f"║ {BOLD}{'TOTAL':<12}{RESET} │ {BOLD}{total_count:<43}{RESET}║")
         print(f"{CYAN}╚{'═'*58}╝{RESET}")
         
+        # New section for specifically decoded sensitive URLs
+        decoded_urls = [f for f in self.findings if f['type'] == 'DEOBFUSCATED_SENSITIVE_URL']
+        if decoded_urls:
+            print(f"\n{BG_RED}{WHITE}{BOLD} 🔥 CRITICAL: HIDDEN ENDPOINTS DETECTED 🔥 {RESET}")
+            for f in decoded_urls:
+                print(f"  {YELLOW}»{RESET} {f['context']} {GREY}(via {f['url']}){RESET}")
+
         if not self.findings:
             print(f"\n{GREEN}[+] No vulnerabilities found.{RESET}")
             return
@@ -79,41 +102,48 @@ class Reporter:
             sev = first_item.get('severity', 'INFO')
             color = self._get_color(sev)
             
-            print(f"\n{color}[{sev}] {t}{RESET} {GREY}({len(items)} found){RESET}")
-            print(f"{BOLD}Description:{RESET} {first_item.get('description', 'N/A')}")
-            print(f"{BOLD}Remediation:{RESET} {first_item.get('remediation', 'N/A')}")
+            title = f"[{sev}] {t} ({len(items)} found)"
+            padding = " " * max(0, 78 - len(title))
+            print(f"\n{color}┌{'─'*80}┐{RESET}")
+            print(f"{color}│ {BOLD}{title}{RESET}{padding} {color}│{RESET}")
+            print(f"{color}└{'─'*80}┘{RESET}")
+            print(f"  {BOLD}Description:{RESET} {first_item.get('description', 'N/A')}")
+            print(f"  {BOLD}Remediation:{RESET} {first_item.get('remediation', 'N/A')}")
+            print()
             
             # Decide on slice
             display_items = items if self.verbose else items[:3]
             
             for i, item in enumerate(display_items):
-                source_tag = f"{MAGENTA}[DYNAMIC]{RESET} " if item.get('source') in ['DYNAMIC_PROBE', 'DYNAMIC', 'DYNAMIC_INTERCEPTION'] else ""
+                source_tag = f"{BRIGHT_MAGENTA}[DYNAMIC]{RESET} " if item.get('source') in ['DYNAMIC_PROBE', 'DYNAMIC', 'DYNAMIC_INTERCEPTION'] else ""
                 
-                print(f"  {CYAN}{i+1}.{RESET} {BOLD}URL:{RESET} {source_tag}{item.get('url', 'Unknown')}")
+                print(f"    {BRIGHT_CYAN}Target {i+1}:{RESET} {source_tag}{item.get('url', 'Unknown')}")
                 
                 line_num = item.get('line', 0)
                 if line_num:
-                    print(f"     {BOLD}Line:{RESET} {line_num}")
+                    print(f"      {BOLD}Line:{RESET}    {YELLOW}{line_num}{RESET}")
                 
                 match_val = item.get('match', 'N/A')
                 # Truncate match if too long
-                if len(str(match_val)) > 100:
-                    match_val = str(match_val)[:97] + "..."
-                print(f"     {BOLD}Match:{RESET} {RED}{match_val}{RESET}")
+                if len(str(match_val)) > 150:
+                    match_val = str(match_val)[:147] + "..."
+                print(f"      {BOLD}Match:{RESET}   {RED}{self._highlight_sensitive(match_val)}{RESET}")
                 
                 if item.get('decoded_value'):
-                    print(f"     {GREEN}{BOLD}Decoded:{RESET} {item['decoded_value']}")
+                    # Use a highlighted background for decoded values to make them pop
+                    print(f"      {BRIGHT_GREEN}{BOLD}Decoded:{RESET} {BG_YELLOW}{WHITE}{BOLD} {item['decoded_value']} {RESET}")
                 
                 context = item.get('context', '')
                 if context:
                     # Clean up newlines/tabs for display
                     context = context.replace('\n', ' ').replace('\r', '').strip()
-                    if len(context) > 120:
-                        context = context[:117] + "..."
-                    print(f"     {BOLD}Context:{RESET} {GREY}{context}{RESET}")
+                    if len(context) > 150:
+                        context = context[:147] + "..."
+                    print(f"      {BOLD}Context:{RESET} {GREY}{self._highlight_sensitive(context)}{RESET}")
+                print()
             
             if not self.verbose and len(items) > 3:
-                print(f"     {YELLOW}... and {len(items)-3} more instances (use -v to see all).{RESET}")
+                print(f"    {YELLOW}... and {len(items)-3} more instances (use -v to see all).{RESET}\n")
 
     def save(self, filepath):
         print(f"[*] Saving report to {filepath}...")
