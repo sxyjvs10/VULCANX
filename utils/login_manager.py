@@ -26,12 +26,15 @@ class LoginManager:
         chrome_options.add_argument("--disable-dev-shm-usage")
         chrome_options.add_argument("--ignore-certificate-errors")
         
-        # Adjust binary location if necessary, assuming default chromium
-        chrome_options.binary_location = "/usr/bin/chromium"
+        # Let webdriver_manager and selenium automatically find the installed Chrome binary
 
+        from webdriver_manager.core.os_manager import ChromeType
         try:
             # We will use webdriver_manager to get the driver
-            service = Service(ChromeDriverManager().install())
+            try:
+                service = Service(ChromeDriverManager().install())
+            except Exception:
+                service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
             driver = webdriver.Chrome(service=service, options=chrome_options)
             
             print(f"[*] Navigating to {self.login_url}...")

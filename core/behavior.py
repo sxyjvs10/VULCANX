@@ -66,25 +66,26 @@ class SessionManager:
         # Enable Performance Logging (CDP) & Console Logs
         chrome_opts.set_capability('goog:loggingPrefs', {'performance': 'ALL', 'browser': 'ALL'})
 
+        from webdriver_manager.chrome import ChromeDriverManager
+        from webdriver_manager.core.os_manager import ChromeType
+        
         try:
-            # Try to use system chromedriver
-            service = Service(executable_path="/usr/bin/chromedriver")
-            self.driver = webdriver.Chrome(options=chrome_opts, service=service)
+            try:
+                service = Service(ChromeDriverManager().install())
+            except Exception:
+                service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+            self.driver = webdriver.Chrome(service=service, options=chrome_opts)
             return # Success
         except Exception as e:
-            print(f"[*] System chromedriver failed, trying regular initialization... Error: {e}")
-            try:
-                self.driver = webdriver.Chrome(options=chrome_opts)
-                return # Success
-            except Exception as e2:
-                print(f"[-] Chrome initialization failed: {e2}")
+            print(f"[-] Chrome initialization failed: {e}")
 
         print("[*] Chrome failed, trying Firefox (Network logs might be limited)...")
+        from webdriver_manager.firefox import GeckoDriverManager
         opts = FirefoxOptions()
         opts.add_argument("--headless")
         try:
-            service = FirefoxService(executable_path="/usr/bin/geckodriver")
-            self.driver = webdriver.Firefox(options=opts, service=service)
+            service = FirefoxService(GeckoDriverManager().install())
+            self.driver = webdriver.Firefox(service=service, options=opts)
         except Exception as e:
             print(f"[-] Firefox initialization failed: {e}")
             self.use_browser = False

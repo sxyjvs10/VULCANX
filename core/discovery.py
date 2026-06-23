@@ -40,9 +40,23 @@ DEFAULT_WORDLIST = [
     "admin.php", "admin/login.php", "panel", "control", "manage",
 
     # --- API & Dev ---
-    "api", "v1", "v2", "graphql", "swagger.json", "swagger-ui.html", "api-docs",
+    "api", "v1", "v2", "graphql", "api-docs",
     "actuator/health", "actuator/env", "actuator/metrics", "health", "metrics", "info",
     "debug", "test.php", "phpinfo.php", "info.php", "temp", "tmp",
+    
+    # --- Swagger & OpenAPI Brute-Forcing ---
+    "swagger", "swagger-ui.html", "swagger/index.html", "api/swagger-ui.html", 
+    "swagger.json", "swagger.yaml", "swagger.yml",
+    "api/swagger.json", "api/swagger.yaml", "api/swagger",
+    "v1/swagger.json", "v2/swagger.json", "v3/swagger.json",
+    "api/v1/swagger.json", "api/v2/swagger.json",
+    "openapi.json", "openapi.yaml", "openapi.yml",
+    "api/openapi.json", "v1/openapi.json",
+    "docs", "api/docs", "api-docs", "api/api-docs", "v1/api-docs", "v2/api-docs", "v3/api-docs",
+    "swagger-ui/index.html", "swagger-ui/", "api/swagger-ui/", "swagger/ui/",
+    "docs/swagger.json", "swagger/v1/swagger.json", "swagger/v2/swagger.json",
+    "api-docs/swagger.json", "springfox-swagger-ui/swagger-ui.html",
+    "apidocs/swagger.json", "swagger-resources/configuration/ui", "swagger-resources/configuration/security",
     
     # --- Cloud & Metadata (If relevant context) ---
     "aws/credentials", ".aws/credentials", "adc.json", "gcp-creds.json",

@@ -1,0 +1,3 @@
+# Ignore these common false positives
+example_false_positive_key
+1234567890abcdef

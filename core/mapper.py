@@ -5,10 +5,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COM
 import threading
 import re
 import xml.etree.ElementTree as ET
+from .sourcemap import SourceMapExtractor
+from .pool import WebDriverPool
+from .wayback import WaybackMachineRecon
+from .osint import PassiveOSINT
 
 class Crawler:
-    def __init__(self, session_manager, base_url, depth=2, max_workers=5):
-        self.session_manager = session_manager
+    def __init__(self, session_manager_or_pool, base_url, depth=2, max_workers=5):
+        self.session_pool = session_manager_or_pool if isinstance(session_manager_or_pool, WebDriverPool) else None
+        self.base_session = session_manager_or_pool if not self.session_pool else None
+        
         self.base_url = base_url
         self.depth = depth
         self.max_workers = max_workers
@@ -18,6 +24,13 @@ class Crawler:
         self.network_urls = set()    # Track URLs from network logs
         self.discovered_links = set() # To avoid re-queueing same discovery
         self.content_hashes = set()  # To avoid redundant analysis of identical content
+        self.header_findings = []    # Store missing security header findings
+        
+        # We need a base session for single-threaded tasks like sourcemaps or fuzzing
+        extractor_session = self.base_session if self.base_session else self.session_pool.get_driver()
+        self.sourcemap_extractor = SourceMapExtractor(extractor_session)
+        if self.session_pool:
+            self.session_pool.return_driver(extractor_session)
 
     def start(self):
         # Auto-discovery
@@ -42,13 +55,20 @@ class Crawler:
         
         print(f"[*] Fuzzing for {len(COMMON_ASSETS)} common unlinked assets...")
         
+        def _fetch_asset(url):
+            sm = self.session_pool.get_driver() if self.session_pool else self.base_session
+            try:
+                return sm.get(url)
+            finally:
+                if self.session_pool: self.session_pool.return_driver(sm)
+
         # Use a thread pool for faster fuzzing
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {}
             for asset_path in COMMON_ASSETS:
                 full_url = urllib.parse.urljoin(self.base_url, asset_path)
                 if full_url not in self.extracted_content:
-                    futures[executor.submit(self.session_manager.get, full_url)] = full_url
+                    futures[executor.submit(_fetch_asset, full_url)] = full_url
 
             for future in as_completed(futures):
                 url = futures[future]
@@ -70,7 +90,10 @@ class Crawler:
         # 1. robots.txt
         robots_url = urllib.parse.urljoin(self.base_url, "/robots.txt")
         try:
-            resp = self.session_manager.get(robots_url)
+            sm = self.session_pool.get_driver() if self.session_pool else self.base_session
+            resp = sm.get(robots_url)
+            if self.session_pool: self.session_pool.return_driver(sm)
+            
             if resp and resp.status_code == 200:
                 print(f"[+] Found robots.txt")
                 # Parse simple robots.txt
@@ -88,7 +111,10 @@ class Crawler:
         # 2. sitemap.xml
         sitemap_url = urllib.parse.urljoin(self.base_url, "/sitemap.xml")
         try:
-            resp = self.session_manager.get(sitemap_url)
+            sm = self.session_pool.get_driver() if self.session_pool else self.base_session
+            resp = sm.get(sitemap_url)
+            if self.session_pool: self.session_pool.return_driver(sm)
+            
             if resp and resp.status_code == 200:
                 print(f"[+] Found sitemap.xml")
                 # Simple XML parse
@@ -105,8 +131,33 @@ class Crawler:
         except Exception:
             pass
         
+        # 3. Wayback Machine Historical Recon
+        try:
+            wb = WaybackMachineRecon(self.base_url)
+            wb_urls = wb.fetch_historical_urls()
+            for wbu in wb_urls:
+                if self.is_internal(wbu):
+                    self.discovered_links.add(wbu)
+        except Exception as e:
+            print(f"[-] Wayback Machine auto-discovery failed: {e}")
+            
+        # 4. AlienVault OTX Recon
+        try:
+            otx = PassiveOSINT(self.base_url)
+            otx_urls = otx.fetch_alienvault_otx()
+            for otx_url in otx_urls:
+                if self.is_internal(otx_url):
+                    self.discovered_links.add(otx_url)
+                    
+            # Subdomains are just printed for the user's manual reconnaissance (since crawling all subdomains statically is too noisy)
+            subdomains = otx.fetch_crtsh_subdomains()
+            if subdomains:
+                print(f"[+] Discovered {len(subdomains)} Subdomains for Manual Testing! Check out: {list(subdomains)[:5]}...")
+        except Exception as e:
+            print(f"[-] OSINT auto-discovery failed: {e}")
+            
         if self.discovered_links:
-            print(f"[+] discovered {len(self.discovered_links)} extra paths from robots/sitemap.")
+            print(f"[+] discovered {len(self.discovered_links)} extra paths from robots/sitemap/wayback/otx.")
 
     def _crawl_loop(self):
         with self.lock:
@@ -139,7 +190,7 @@ class Crawler:
                     except Exception as e:
                         print(f"[-] Error processing {url}: {e}")
         
-        return self.extracted_content, self.network_urls
+        return self.extracted_content, self.network_urls, self.header_findings
 
     def process_url(self, url, current_depth):
         # 1. Skip non-analyzable binary/media assets early
@@ -149,8 +200,9 @@ class Crawler:
 
         print(f"[*] [Session Active] Crawling: {url} (Depth: {current_depth})")
         
+        session = self.session_pool.get_driver() if self.session_pool else self.base_session
         try:
-            response = self.session_manager.get(url)
+            response = session.get(url)
             if response and response.status_code == 200:
                 # 2. Content Deduplication
                 # Avoid re-scanning identical content served under different URLs
@@ -168,14 +220,54 @@ class Crawler:
 
                 ctype = response.headers.get('Content-Type', '').lower()
                 
+                # Check Security Headers if HTML
+                if 'text/html' in ctype:
+                    headers_lower = {k.lower(): v for k, v in response.headers.items()}
+                    missing = []
+                    if 'content-security-policy' not in headers_lower:
+                        missing.append("Content-Security-Policy (CSP)")
+                    if 'strict-transport-security' not in headers_lower and url.startswith('https'):
+                        missing.append("Strict-Transport-Security (HSTS)")
+                    if 'x-frame-options' not in headers_lower:
+                        missing.append("X-Frame-Options (XFO)")
+                    if 'x-content-type-options' not in headers_lower:
+                        missing.append("X-Content-Type-Options")
+                        
+                    if missing:
+                        with self.lock:
+                            for m_header in missing:
+                                self.header_findings.append({
+                                    'url': url,
+                                    'type': 'MISSING_SECURITY_HEADER',
+                                    'severity': 'LOW',
+                                    'description': f'Missing Security Header: {m_header}',
+                                    'remediation': f'Implement the {m_header} header to protect against common web vulnerabilities.',
+                                    'match': f'Missing: {m_header}',
+                                    'context': 'HTTP Response Headers',
+                                    'line': 0,
+                                    'source': 'HEADER_SCAN'
+                                })
+                
                 # Store content if text-based
                 if any(x in ctype for x in ['text', 'javascript', 'json', 'xml', 'markdown', 'md']):
                     with self.lock:
-                        self.extracted_content[url] = response.text
+                        # Memory Optimization: Drop very large files (> 5MB) from memory unless it's the target URL
+                        if len(response.text) < 5_000_000 or url == self.base_url:
+                            self.extracted_content[url] = response.text
+                        else:
+                            print(f"[!] Warning: Dropped {url} from memory analysis (Size > 5MB)")
+                            self.extracted_content[url] = "<!-- CONTENT DROPPED DUE TO SIZE (>5MB) -->"
+                        
+                    # Trigger Source Map Extraction if it's JS
+                    if 'javascript' in ctype or url.endswith('.js'):
+                        sm_sources = self.sourcemap_extractor.extract(url, response.text)
+                        if sm_sources:
+                            with self.lock:
+                                self.extracted_content.update(sm_sources)
                 
                 # Capture Network Logs (if browser is active)
-                if self.session_manager.use_browser:
-                    bg_logs = self.session_manager.get_network_logs()
+                if session.use_browser:
+                    bg_logs = session.get_network_logs()
                     if bg_logs:
                         print(f"[+] Captured {len(bg_logs)} background network responses from {url}")
                         for bg_url in bg_logs.keys():
@@ -199,6 +291,9 @@ class Crawler:
         except Exception as e:
             print(f"[-] Exception crawling {url}: {e}")
             return []
+        finally:
+            if self.session_pool:
+                self.session_pool.return_driver(session)
 
     def extract_links(self, html_content, current_url, next_depth):
         links = []
@@ -209,6 +304,8 @@ class Crawler:
             for a in soup.find_all('a', href=True):
                 href = a['href']
                 full_url = urllib.parse.urljoin(current_url, href)
+                # Remove fragment to prevent infinite loops on the same page
+                full_url, _ = urllib.parse.urldefrag(full_url)
                 if self.is_internal(full_url):
                     links.append((full_url, next_depth))
             

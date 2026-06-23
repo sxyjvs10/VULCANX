@@ -5,6 +5,9 @@ from .strategies.binary_chain import BinaryChainStrategy
 from .strategies.tkl_strategy import TklStrategy
 from .strategies.xor_obfuscation import XORObfuscationStrategy
 from .strategies.javascript_obfuscator import JavascriptObfuscatorStrategy
+from .strategies.mahofin_strategy import MahofinStrategy
+from .strategies.network_strategy import NetworkStrategy
+from .strategies.generic_key_pattern_strategy import GenericKeyPatternStrategy
 
 class DecryptionManager:
     def __init__(self):
@@ -13,10 +16,13 @@ class DecryptionManager:
 
     def _register_strategies(self):
         # Add strategies here. Order matters (most specific to least specific).
+        self.strategies.append(MahofinStrategy())
         self.strategies.append(JavascriptObfuscatorStrategy())
+        self.strategies.append(NetworkStrategy())
         self.strategies.append(TklStrategy())
         self.strategies.append(KeyForgeStrategy())
         self.strategies.append(XORObfuscationStrategy())
+        self.strategies.append(GenericKeyPatternStrategy()) # New generic key pattern strategy
         self.strategies.append(BinaryChainStrategy())
         self.strategies.append(Base64HexStrategy())
 

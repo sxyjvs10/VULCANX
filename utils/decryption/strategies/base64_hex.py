@@ -10,12 +10,13 @@ class Base64HexStrategy(DecryptionStrategy):
         # This regex looks for strings assigned to variables that look like base64 or hex
         # It's a bit heuristic.
         
-        # Regex for potential secrets (assignments)
-        regex = r"\b(?:key|secret|token|password|auth|api_key)\s*[:=]\s*['\"]([A-Za-z0-9+/=_ -]{20,}|[A-Fa-f0-9]{32,})['\"]"
+        # Regex for potential secrets (assignments and atob calls)
+        regex = r"(?:\b(?:key|secret|token|password|auth|api_key)\s*[:=]\s*['\"]([A-Za-z0-9+/=_ -]{10,}|[A-Fa-f0-9]{32,})['\"])|(?:\batob\s*\(\s*['\"]([A-Za-z0-9+/=_ -]{10,})['\"]\s*\))"
         
         matches = re.finditer(regex, content, re.IGNORECASE)
         for match in matches:
-            val = match.group(1)
+            # Group 1 is from assignments, Group 2 is from atob
+            val = match.group(1) or match.group(2)
             decoded = self._decode_value(val)
             if decoded:
                 findings.append({

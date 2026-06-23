@@ -5,8 +5,10 @@ from bs4 import BeautifulSoup
 import random
 
 class GoogleDorker:
-    def __init__(self, domain):
+    def __init__(self, domain, api_key=None, cx=None):
         self.domain = domain
+        self.api_key = api_key
+        self.cx = cx
         self.dorks = {
             "Publicly Exposed Documents": f"site:{domain} ext:doc | ext:docx | ext:odt | ext:pdf | ext:rtf | ext:sxw | ext:psw | ext:ppt | ext:pptx | ext:pps | ext:csv",
             "Directory Listing Vulnerabilities": f"site:{domain} intitle:index.of",
@@ -46,48 +48,104 @@ class GoogleDorker:
             print(f"  [+] {title}:")
             print(f"      {link}")
 
+    def execute_google_api(self):
+        """
+        Executes dorks using the Google Custom Search JSON API.
+        """
+        if not self.api_key or not self.cx:
+            return None
+        
+        print(f"\n[*] Authenticating with Google Search API...")
+        found_urls = []
+        base_url = "https://www.googleapis.com/customsearch/v1"
+        
+        for title, query in self.dorks.items():
+            params = {
+                'key': self.api_key,
+                'cx': self.cx,
+                'q': query
+            }
+            try:
+                response = requests.get(base_url, params=params, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'items' in data:
+                        print(f"  [!] {title} ({len(data['items'])} results found)")
+                        for item in data['items']:
+                            link = item.get('link')
+                            if link:
+                                print(f"      -> {link}")
+                                if link not in found_urls:
+                                    found_urls.append(link)
+                    else:
+                        print(f"  [+] {title} (0 results)")
+                else:
+                    print(f"  [-] Error {response.status_code} querying {title}: {response.text}")
+                    if response.status_code == 403:
+                         print("  [-] Quota exceeded or API Key invalid.")
+                         break
+            except Exception as e:
+                print(f"  [-] Failed to execute API query for '{title}': {e}")
+        
+        return found_urls
+
     def execute_dorks(self):
         """
         Executes the dorks dynamically using a headless scraper (DuckDuckGo HTML).
         Returns a list of found sensitive URLs.
         """
+        if self.api_key and self.cx:
+            return self.execute_google_api()
+
         print(f"\n[*] Executing {len(self.dorks)} Dorks dynamically via stealth scraping...")
         found_urls = []
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        search_url = "https://html.duckduckgo.com/html/"
+        search_url = "https://lite.duckduckgo.com/lite/"
 
         for title, query in self.dorks.items():
             data = {'q': query}
             try:
                 # Add random sleep to prevent rate limiting
-                time.sleep(random.uniform(1.5, 3.5))
+                time.sleep(random.uniform(0.5, 1.0))
                 
-                response = requests.post(search_url, headers=headers, data=data, timeout=10)
+                response = requests.post(search_url, headers=headers, data=data, timeout=15)
                 
                 if response.status_code == 200:
                     soup = BeautifulSoup(response.text, 'html.parser')
-                    results = soup.find_all('a', class_='result__url')
+                    # Lite version uses different classes
+                    results = soup.find_all('a', class_='result-url')
                     
+                    if not results:
+                        # Fallback for different DOM structures in Lite
+                        results = soup.find_all('a', class_='result-snippet')
+                        
                     if results:
                         print(f"  [!] {title} ({len(results)} results found)")
                         for a in results:
                             link = a.get('href')
                             if link:
-                                if link.startswith('//duckduckgo.com/l/?uddg='):
+                                # Clean up duckduckgo redirect wrappers if they exist
+                                if 'uddg=' in link:
                                     link = urllib.parse.unquote(link.split('uddg=')[1].split('&')[0])
-                                print(f"      -> {link}")
-                                if link not in found_urls:
-                                    found_urls.append(link)
+                                elif link.startswith('//'):
+                                    link = "https:" + link
+                                
+                                if link.startswith('http'): # Ensure it's a real external link
+                                    print(f"      -> {link}")
+                                    if link not in found_urls:
+                                        found_urls.append(link)
                     else:
                         print(f"  [+] {title} (0 results)")
                         
                 elif response.status_code == 403 or response.status_code == 429:
-                    print(f"  [-] Rate limit exceeded. Search engine is blocking requests.")
-                    print("  [-] Please wait a few minutes or switch networks.")
+                    print(f"  [-] Rate limit/Captcha hit (Status {response.status_code}).")
+                    print("  [-] DuckDuckGo is temporarily blocking automated requests. Skipping remaining dorks.")
                     break
+                elif response.status_code == 202:
+                    print(f"  [-] Status 202 Accepted (Wait/Captcha needed). Skipping {title}...")
                 else:
                     print(f"  [-] Error {response.status_code} querying {title}")
                 

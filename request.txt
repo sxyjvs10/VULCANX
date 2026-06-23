@@ -1,0 +1,10 @@
+POST /HFcollectionPublicAPI/api/Collection/getLoanCustomerDetails HTTP/2
+Host: uat.mahofin.in
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiMCwxNTI3NzUsMTE6NTE6MTcgQU0iLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjUwMDAiLCJhdWQiOiJodHRwOi8vbG9jYWxob3N0OjUwMDAifQ.FUBq4LPAahZzLB7ZO6-EIiUp4qrlt8jC6vWbzYQyzpg
+Content-Type: application/json; charset=UTF-8
+Content-Length: 80
+Accept-Encoding: gzip, deflate, br
+User-Agent: okhttp/5.0.0-alpha.8
+
+{"request":"7bsk6cKHHJ5kRNjOOL5kbLnXUpAOA9xr66o5fLR2JSoRtEbjLn6ILhSt+FqZ9zDL\n"}
+

@@ -169,86 +169,232 @@ class Reporter:
     def save_html(self, filepath):
         html_template = """
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
-            <title>VULSCAN Scan Report</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>VulcanX Interactive Scan Report</title>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
             <style>
-                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
-                h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-                .summary-box { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
-                table { border-collapse: collapse; width: 100%; margin-top: 10px; }
-                th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-                th { background-color: #34495e; color: white; }
-                tr:nth-child(even) { background-color: #f9f9f9; }
-                tr:hover { background-color: #f1f1f1; }
+                :root {
+                    --bg-dark: #0f172a;
+                    --bg-panel: #1e293b;
+                    --text-main: #f8fafc;
+                    --text-muted: #94a3b8;
+                    --accent: #38bdf8;
+                    --critical: #ef4444;
+                    --high: #f97316;
+                    --medium: #eab308;
+                    --low: #3b82f6;
+                    --info: #22c55e;
+                }
+                body { 
+                    font-family: 'Inter', -apple-system, sans-serif; 
+                    margin: 0; 
+                    background-color: var(--bg-dark); 
+                    color: var(--text-main); 
+                }
+                .navbar {
+                    background: var(--bg-panel);
+                    padding: 1rem 2rem;
+                    border-bottom: 1px solid #334155;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                }
+                .navbar h1 { margin: 0; font-size: 1.5rem; color: var(--accent); letter-spacing: 1px; }
+                .container { padding: 2rem; max-width: 1400px; margin: 0 auto; }
                 
-                .critical { color: #721c24; background-color: #f8d7da; font-weight: bold; }
-                .high { color: #dc3545; font-weight: bold; }
-                .medium { color: #ffc107; font-weight: bold; }
-                .low { color: #17a2b8; font-weight: bold; }
-                .info { color: #28a745; font-weight: bold; }
+                .dashboard-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                    gap: 1.5rem;
+                    margin-bottom: 2rem;
+                }
+                .panel {
+                    background: var(--bg-panel);
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+                    border: 1px solid #334155;
+                }
+                .panel h3 { margin-top: 0; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
                 
-                .finding-block { background: white; padding: 15px; border-radius: 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 15px; border-left: 5px solid #ccc; }
-                .finding-block.critical { border-left-color: #dc3545; }
-                .finding-block.high { border-left-color: #ff4444; }
-                .finding-block.medium { border-left-color: #ffbb33; }
-                .finding-block.low { border-left-color: #00C851; }
+                .stat-hero { font-size: 3rem; font-weight: bold; margin: 0.5rem 0; }
                 
-                pre { background-color: #2d2d2d; color: #f8f8f2; padding: 10px; border-radius: 3px; overflow-x: auto; font-family: 'Consolas', monospace; }
-                code { background-color: #eee; padding: 2px 5px; border-radius: 3px; color: #d63384; }
+                .chart-container { position: relative; height: 300px; width: 100%; }
+                
+                table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 0.95rem; }
+                th, td { border-bottom: 1px solid #334155; padding: 12px; text-align: left; }
+                th { color: var(--text-muted); font-weight: 600; }
+                tr:hover { background-color: #334155; }
+                
+                .badge { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
+                .badge.critical { background: rgba(239, 68, 68, 0.2); color: var(--critical); border: 1px solid var(--critical); }
+                .badge.high { background: rgba(249, 115, 22, 0.2); color: var(--high); border: 1px solid var(--high); }
+                .badge.medium { background: rgba(234, 179, 8, 0.2); color: var(--medium); border: 1px solid var(--medium); }
+                .badge.low { background: rgba(59, 130, 246, 0.2); color: var(--low); border: 1px solid var(--low); }
+                .badge.info { background: rgba(34, 197, 94, 0.2); color: var(--info); border: 1px solid var(--info); }
+                
+                .finding-block { 
+                    background: var(--bg-panel); 
+                    padding: 1.5rem; 
+                    border-radius: 8px; 
+                    margin-bottom: 1.5rem; 
+                    border-left: 4px solid var(--text-muted);
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.2);
+                }
+                .finding-block.critical { border-left-color: var(--critical); }
+                .finding-block.high { border-left-color: var(--high); }
+                .finding-block.medium { border-left-color: var(--medium); }
+                .finding-block.low { border-left-color: var(--low); }
+                .finding-block.info { border-left-color: var(--info); }
+                
+                .finding-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #334155; padding-bottom: 10px; margin-bottom: 15px; }
+                .finding-header h4 { margin: 0; font-size: 1.2rem; }
+                
+                pre { background-color: #0f172a; color: #e2e8f0; padding: 15px; border-radius: 6px; overflow-x: auto; font-family: 'Consolas', monospace; font-size: 0.9rem; border: 1px solid #334155; }
+                code { background-color: #0f172a; padding: 3px 6px; border-radius: 4px; color: #f472b6; border: 1px solid #334155; }
             </style>
         </head>
         <body>
-            <h1>VULSCAN Scan Report</h1>
-            <div class="summary-box">
-                <p><strong>Timestamp:</strong> {{TIMESTAMP}}</p>
-                <p><strong>Total Findings:</strong> {{TOTAL}}</p>
-                {{SUMMARY_TABLE}}
+            <div class="navbar">
+                <h1>VulcanX Analysis Graph</h1>
+                <span style="color: var(--text-muted);">{{TIMESTAMP}}</span>
             </div>
             
-            <h2>Detailed Findings</h2>
-            {{FINDINGS_LIST}}
+            <div class="container">
+                <div class="dashboard-grid">
+                    <div class="panel">
+                        <h3>Total Findings</h3>
+                        <div class="stat-hero" id="totalCount">{{TOTAL}}</div>
+                        <p style="color: var(--text-muted); margin:0;">Identified across the scanned application.</p>
+                    </div>
+                    <div class="panel">
+                        <h3>Severity Distribution</h3>
+                        <div class="chart-container">
+                            <canvas id="severityChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="panel">
+                        <h3>Vulnerability Types</h3>
+                        <div class="chart-container">
+                            <canvas id="typeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel" style="margin-bottom: 2rem;">
+                    <h3>Findings Summary</h3>
+                    {{SUMMARY_TABLE}}
+                </div>
+
+                <h2 style="border-bottom: 1px solid #334155; padding-bottom: 10px; margin-top: 2rem;">Detailed Trace Logs</h2>
+                {{FINDINGS_LIST}}
+            </div>
+
+            <script>
+                const sevData = {{SEVERITY_DATA_JSON}};
+                const typeData = {{TYPE_DATA_JSON}};
+
+                // Severity Chart
+                new Chart(document.getElementById('severityChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Critical', 'High', 'Medium', 'Low', 'Info'],
+                        datasets: [{
+                            data: [sevData.CRITICAL, sevData.HIGH, sevData.MEDIUM, sevData.LOW, sevData.INFO],
+                            backgroundColor: ['#ef4444', '#f97316', '#eab308', '#3b82f6', '#22c55e'],
+                            borderWidth: 0,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'right', labels: { color: '#f8fafc' } } }
+                    }
+                });
+
+                // Type Chart
+                new Chart(document.getElementById('typeChart'), {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(typeData),
+                        datasets: [{
+                            label: 'Count',
+                            data: Object.values(typeData),
+                            backgroundColor: '#38bdf8',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            y: { beginAtZero: true, grid: { color: '#334155' }, ticks: { color: '#94a3b8', stepSize: 1 } },
+                            x: { grid: { display: false }, ticks: { color: '#94a3b8' } }
+                        }
+                    }
+                });
+            </script>
         </body>
         </html>
         """
         
+        # Aggregate Data
+        counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'INFO': 0}
+        type_counts = {}
+        for f in self.findings:
+            sev = f.get('severity', 'INFO').upper()
+            if sev in counts: counts[sev] += 1
+            
+            t = f.get('type', 'Unknown')
+            type_counts[t] = type_counts.get(t, 0) + 1
+            
         # Summary Table
         summary_rows = ""
-        counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'INFO': 0}
-        for f in self.findings:
-            counts[f.get('severity', 'INFO')] += 1
-            
         for sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
             if counts[sev] > 0:
-                summary_rows += f"<tr><td class='{{sev.lower()}}'>{{sev}}</td><td>{{counts[sev]}}</td></tr>"
+                summary_rows += f"<tr><td><span class='badge {sev.lower()}'>{sev}</span></td><td>{counts[sev]}</td></tr>"
         
-        summary_table = f"<table><tr><th>Severity</th><th>Count</th></tr>{{summary_rows}}</table>"
+        summary_table = f"<table><tr><th>Severity Risk Level</th><th>Identified Instances</th></tr>{summary_rows}</table>"
 
         # Findings List
         findings_html = ""
         for f in self.findings:
-            sev = f.get('severity', 'INFO')
+            sev = f.get('severity', 'INFO').upper()
             sev_class = sev.lower()
             
             findings_html += f'<div class="finding-block {sev_class}">\n'
-            findings_html += f'<h3><span class="{sev_class}">[{sev}]</span> {f["type"]}</h3>\n'
-            findings_html += f'<p><strong>URL:</strong> <a href="{f["url"]}">{f["url"]}</a></p>\n'
+            findings_html += f'<div class="finding-header"><h4>{f.get("type", "Unknown")}</h4><span class="badge {sev_class}">{sev}</span></div>\n'
+            findings_html += f'<p><strong>Endpoint/URL:</strong> <a href="{f.get("url", "#")}" style="color: var(--accent);">{f.get("url", "N/A")}</a></p>\n'
+            
+            if f.get("confidence") and f.get("confidence") != 'N/A':
+                findings_html += f'<p><strong>Confidence Score:</strong> <span style="color: var(--accent); font-weight: bold;">{f["confidence"]}</span></p>\n'
+            if f.get("compliance") and f.get("compliance") != 'N/A':
+                findings_html += f'<p><strong>Compliance Mapping:</strong> {f["compliance"]}</p>\n'
+                
             findings_html += f'<p><strong>Description:</strong> {f.get("description","")}</p>\n'
             findings_html += f'<p><strong>Remediation:</strong> {f.get("remediation","")}</p>\n'
-            findings_html += f'<p><strong>Match:</strong> <code>{f.get("match","")}</code></p>\n'
+            findings_html += f'<p><strong>Target Match:</strong> <code>{f.get("match","")}</code></p>\n'
             if f.get("decoded_value"):
-                findings_html += f'<p><strong>Decoded:</strong> {f["decoded_value"]}</p>\n'
-            findings_html += f'<pre>{f.get("context","")}</pre>\n'
+                findings_html += f'<p><strong>Decoded Payload:</strong> <code style="background: rgba(234, 179, 8, 0.2); color: var(--medium); border-color: var(--medium);">{f["decoded_value"]}</code></p>\n'
+            findings_html += f'<pre><code>{f.get("context","")}</code></pre>\n'
             findings_html += '</div>\n'
         
-        html = html_template.replace("{{TIMESTAMP}}", datetime.datetime.now().isoformat())
+        # Inject Variables
+        html = html_template.replace("{{TIMESTAMP}}", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC"))
         html = html.replace("{{TOTAL}}", str(len(self.findings)))
         html = html.replace("{{SUMMARY_TABLE}}", summary_table)
         html = html.replace("{{FINDINGS_LIST}}", findings_html)
+        html = html.replace("{{SEVERITY_DATA_JSON}}", json.dumps(counts))
+        html = html.replace("{{TYPE_DATA_JSON}}", json.dumps(type_counts))
         
         try:
             with open(filepath, 'w') as f:
                 f.write(html)
-            print(f"[+] HTML Report saved successfully.")
+            print(f"[+] Advanced Graphical HTML Report saved to {filepath}")
         except Exception as e:
-            print(f"[-] Failed to save HTML report: {e}")
+            print(f"[-] Failed to save Graphical HTML report: {e}")

@@ -1,81 +1,50 @@
-# VULSCAN SOURCE CODE SCANNER WITH AES DECRYPTION
+# VulcanX
 
-VULSCAN is a specialized security tool designed to analyze client-side web application code for hardcoded secrets, cryptographic weaknesses, and logic flaws. It combines static analysis (crawling and regex matching) with dynamic analysis (browser interception and hooking) to uncover vulnerabilities in modern Single Page Applications (SPAs).
+VulcanX is an advanced, enterprise-grade, client-side web application vulnerability scanner tailored for manual bug bounty hunters and penetration testers. It focuses on finding critical vulnerabilities, hardcoded secrets, and hidden attack surface in heavily obfuscated, modern Single-Page Applications (React, Vue, Angular).
 
-## Features
+## Core Features
 
-- **Authenticated Crawling**: Handles session cookies and custom headers.
-- **Static Analysis**: 
-    - Scans HTML, JavaScript, JSON, and markdown files.
-    - Detects hardcoded API keys (AWS, Google, etc.), PII, and custom secret patterns.
-    - Identifies dangerous JS sinks (`eval`, `innerHTML`, etc.).
-- **Dynamic Analysis (Live Exploit)**:
-    - Injects a JavaScript interceptor (`aes_live.js`) into the browser context.
-    - Hooks `CryptoJS`, `WebCrypto API`, `atob`, and other sensitive functions.
-    - Captures encryption keys, IVs, and decrypted payloads in real-time.
-- **Unlinked Asset Discovery**: Fuzzes for common unlinked JS files (e.g., `main.js`, `common.js`).
-- **AES Decryption Strategies**: Includes logic to handle specific obfuscation patterns and automated key extraction.
-- **Reporting**: Generates comprehensive JSON reports.
-
-## Installation
-
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/vulscan.git
-    cd vulscan
-    ```
-
-2.  Install Python dependencies:
-    ```bash
-    pip3 install -r requirements.txt
-    ```
-
-3.  Ensure you have `chromedriver` installed and in your PATH (for dynamic analysis).
+- **Automated Source Map Recompilation:** Automatically detects `.map` files, downloads them, and reconstructs the unminified original source code into virtual memory for deep static analysis.
+- **Deep Static Taint Analysis:** Traces data flows from unsafe sources (e.g., `location.search`) to dangerous sinks (e.g., `innerHTML`) to identify DOM XSS vulnerabilities entirely statically.
+- **Automated API & Parameter Mapping:** Parses JS routing logic (e.g., `fetch`, `axios`) to dynamically extract hidden backend API routes and their expected JSON parameters.
+- **Advanced JWT Offline Analysis:** Automatically decodes discovered JSON Web Tokens, extracts tenant data, and flags CRITICAL weaknesses like the `'alg': 'none'` signature bypass.
+- **Wayback Machine & OSINT Passive Recon:** Queries the Internet Archive's CDX API, AlienVault OTX, and crt.sh to discover subdomains, historical endpoints, and forgotten APIs without touching the target.
+- **Advanced Deobfuscation Engine:** Includes dynamic AES interception and AST-based deobfuscation to decrypt payloads and extract hardcoded keys disguised within complex JavaScript logic.
+- **Targeted Discovery:** Features an extensive brute-force engine targeting over 40 distinct Swagger/OpenAPI documentation paths, configuration files, and sensitive directories.
+- **Bug Bounty Signatures:** Equipped with high-confidence regex signatures tailored for bug bounties (e.g., Stripe Keys, GitHub PATs, Firebase URLs, SSRF URL Parameters, S3 Buckets, Hardcoded Bearer Tokens).
+- **False Positive Triage:** Supports `.vulcanxignore` files to easily filter out known, intentional dummy keys or safe strings across repeated scans.
+- **Enterprise Reporting:** Generates interactive, standalone HTML dashboards with graphical severity distributions, confidence scores, and industry compliance mapping (OWASP, PCI-DSS, ISO 27001).
 
 ## Usage
 
-### Basic Static Scan
+Basic comprehensive scan:
 ```bash
-python3 vulscan.py -u https://target.com/
+python3 vulcanx.py -u https://target.com --scan-all
 ```
 
-### Authenticated Scan
+Targeted Secret Hunting with False Positive Filtering:
 ```bash
-python3 vulscan.py -u https://target.com/dashboard -c "sessionid=xyz; token=abc"
+python3 vulcanx.py -u https://target.com --key-and-file-scan-only --ignore-list ignore.txt
 ```
 
-### Comprehensive Scan (Static + Dynamic)
-This mode runs the crawler, analyzes source code, and launches a headless browser to intercept cryptographic operations.
+Aggressive Discovery (Hidden Paths & Swagger API Docs):
 ```bash
-python3 vulscan.py -u https://target.com/ --scan-all
+python3 vulcanx.py -u https://target.com --hidden-scan --wordlist custom_list.txt
 ```
 
-### Live Exploit Mode (Manual Control)
-Launches the browser with the interceptor and keeps it open for manual navigation.
+Live Deobfuscation (Requires Headless Browser):
 ```bash
-python3 vulscan.py -u https://target.com/ --live-exploit
+python3 vulcanx.py -u https://target.com -b --live-exploit
 ```
 
-## Flags
+## Options
 
-*   `-u, --url`: Target URL.
-*   `-c, --cookies`: Session cookies string.
-*   `-H, --headers`: Custom headers (can be used multiple times).
-*   `-d, --depth`: Crawl depth (default: 3).
-*   `-t, --threads`: Number of threads (default: 10).
-*   `-o, --output`: Output file path.
-*   `-k, --insecure`: Disable SSL verification.
-*   `--scan-all`: Run all analysis strategies.
-*   `--live-exploit`: Inject interceptor and monitor.
-*   `--save-content`: Save crawled file content locally.
-
-## Directory Structure
-
-*   `core/`: Core logic modules (Mapper, Engine, Behavior, etc.).
-*   `payloads/`: JavaScript payloads for dynamic interception.
-*   `utils/`: Helper utilities (Login, Component Checker, Decryption).
-*   `vulscan.py`: Main entry point.
-
-## Disclaimer
-
-This tool is for educational and authorized testing purposes only. Usage against targets without prior mutual consent is illegal.
+* `-u, --url`: Target URL
+* `-c, --cookies`: Session Cookies for authenticated scanning
+* `-H, --headers`: Custom headers (e.g., Authorization tokens)
+* `-d, --depth`: Crawl depth (Default: 3)
+* `-t, --threads`: Concurrent threads for crawling/bruteforcing (Default: 10)
+* `--ignore-list`: Path to a text file containing strings/regexes to ignore
+* `--min-severity`: Minimum severity to report (INFO, LOW, MEDIUM, HIGH, CRITICAL)
+* `-o, --output`: Output file name for the HTML report
+* `--dorks`: Generate and execute Google Dorks for the target domain
