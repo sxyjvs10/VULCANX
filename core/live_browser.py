@@ -447,6 +447,11 @@ WIDGET_INIT_JS = r"""
                 bodyInput.style.fontSize = '10px';
                 repeaterDiv.appendChild(bodyInput);
                 
+                var btnGroup = document.createElement('div');
+                btnGroup.style.display = 'flex';
+                btnGroup.style.gap = '10px';
+                btnGroup.style.marginBottom = '8px';
+
                 var sendBtn = document.createElement('button');
                 sendBtn.innerText = 'Send Request';
                 sendBtn.style.background = '#004488';
@@ -455,8 +460,28 @@ WIDGET_INIT_JS = r"""
                 sendBtn.style.padding = '4px 8px';
                 sendBtn.style.borderRadius = '3px';
                 sendBtn.style.cursor = 'pointer';
-                sendBtn.style.marginBottom = '8px';
-                repeaterDiv.appendChild(sendBtn);
+                btnGroup.appendChild(sendBtn);
+                
+                var fuzzBtn = document.createElement('button');
+                fuzzBtn.innerText = 'Fuzz Selection (Intruder)';
+                fuzzBtn.style.background = '#660000';
+                fuzzBtn.style.color = '#fff';
+                fuzzBtn.style.border = '1px solid #ff0055';
+                fuzzBtn.style.padding = '4px 8px';
+                fuzzBtn.style.borderRadius = '3px';
+                fuzzBtn.style.cursor = 'pointer';
+                fuzzBtn.title = "Highlight a piece of text in the URL or Body to inject payloads.";
+                btnGroup.appendChild(fuzzBtn);
+
+                repeaterDiv.appendChild(btnGroup);
+
+                var fuzzerStatus = document.createElement('div');
+                fuzzerStatus.id = 'vx-fuzzer-status';
+                fuzzerStatus.style.display = 'none';
+                fuzzerStatus.style.marginBottom = '8px';
+                fuzzerStatus.style.fontSize = '10px';
+                fuzzerStatus.style.color = '#ffcc00';
+                repeaterDiv.appendChild(fuzzerStatus);
                 
                 var respDiv = document.createElement('div');
                 respDiv.id = 'vx-rep-response';
@@ -526,6 +551,117 @@ WIDGET_INIT_JS = r"""
                     }
                     sendBtn.innerText = 'Send Request';
                     sendBtn.disabled = false;
+                };
+
+                fuzzBtn.onclick = async function() {
+                    // Try to get selected text from URL or Body
+                    var activeEl = document.activeElement;
+                    var isUrl = activeEl && activeEl.id === 'vx-rep-url';
+                    var isBody = activeEl && activeEl.id === 'vx-rep-body';
+                    
+                    if (!isUrl && !isBody) {
+                        alert("Please click inside the URL or Body field and highlight the text you want to fuzz (e.g. highlight '1' in id=1).");
+                        return;
+                    }
+
+                    var selectionStart = activeEl.selectionStart;
+                    var selectionEnd = activeEl.selectionEnd;
+                    
+                    if (selectionStart === selectionEnd) {
+                        alert("Please highlight/select the specific text you want to replace with payloads.");
+                        return;
+                    }
+
+                    var originalText = activeEl.value;
+                    var prefix = originalText.substring(0, selectionStart);
+                    var suffix = originalText.substring(selectionEnd);
+                    var targetString = originalText.substring(selectionStart, selectionEnd);
+
+                    if (!confirm("Start Fuzzer? We will inject payloads into the highlighted parameter: '" + targetString + "'")) {
+                        return;
+                    }
+
+                    fuzzBtn.disabled = true;
+                    fuzzBtn.style.opacity = '0.5';
+                    fuzzerStatus.style.display = 'block';
+                    respDiv.style.display = 'none';
+
+                    var payloads = [
+                        "'", "''", "`", "``", ",", """, """", "/", "//", "\\", "\\\\", ";", "' or "", "-- or #", 
+                        "' OR '1", "' OR 1 -- -", "" OR "" = "", "" OR 1 = 1 -- -", "' OR '' = '",
+                        "admin' --", "admin' #", "' OR 'x'='x",
+                        "<script>alert(1)</script>", ""><script>alert(1)</script>", "<img src=x onerror=alert(1)>",
+                        "{{7*7}}", "${7*7}", "<%= 7*7 %>", "[[5*5]]",
+                        "../../../../etc/passwd", "..\\..\\..\\..\\windows\\win.ini",
+                        ";id", "|id", "`id`", "$(id)"
+                    ];
+
+                    var method = methodSelect.value;
+                    var headersStr = headersInput.value;
+                    var headers = {};
+                    try { headers = JSON.parse(headersStr); } catch(e) {}
+
+                    var url = urlInput.value;
+                    var body = bodyInput.value;
+
+                    var hits = 0;
+                    var errors = 0;
+
+                    for (let i = 0; i < payloads.length; i++) {
+                        var p = payloads[i];
+                        fuzzerStatus.innerText = `Fuzzing: ${i+1}/${payloads.length} [Payload: ${p}]`;
+                        
+                        var f_url = url;
+                        var f_body = body;
+
+                        if (isUrl) f_url = prefix + encodeURIComponent(p) + suffix;
+                        if (isBody) f_body = prefix + p + suffix;
+
+                        var opts = { method: method, headers: headers, credentials: 'omit' };
+                        if (method !== 'GET' && method !== 'HEAD' && f_body) {
+                            opts.body = f_body;
+                        }
+
+                        try {
+                            var res = await fetch(f_url, opts);
+                            var text = await res.text();
+                            
+                            // Check for simple reflection or errors
+                            var interesting = false;
+                            if (res.status >= 500) interesting = true;
+                            if (text.includes("syntax error") || text.includes("mysql") || text.includes("Warning:") || text.includes("Exception")) interesting = true;
+                            if (p === "<script>alert(1)</script>" && text.includes(p)) interesting = true;
+                            if (p === "{{7*7}}" && text.includes("49")) interesting = true;
+                            
+                            if (interesting) {
+                                hits++;
+                                // Log to traffic so user can review it
+                                window.__vulcanx_state.traffic.unshift({
+                                    id: Math.random().toString(),
+                                    method: method,
+                                    url: f_url,
+                                    display_url: f_url.length > 150 ? f_url.substring(0,150) + "..." : f_url,
+                                    status_code: res.status,
+                                    time: new Date().toTimeString().split(' ')[0],
+                                    req_headers: headers,
+                                    req_body: f_body
+                                });
+                            }
+                        } catch(e) {
+                            errors++;
+                        }
+                    }
+
+                    fuzzerStatus.innerText = `Fuzzing Complete! ${hits} interesting responses found. Check Traffic tab. (Errors: ${errors})`;
+                    fuzzBtn.disabled = false;
+                    fuzzBtn.style.opacity = '1';
+                    
+                    if (hits > 0) {
+                        window.__vulcanx_render();
+                        alert(`Fuzzer finished. Found ${hits} potentially vulnerable responses. They have been added to the top of your Traffic log for review!`);
+                    } else {
+                        setTimeout(() => fuzzerStatus.style.display = 'none', 5000);
+                    }
                 };
 
                 if (traffic.length === 0) {
