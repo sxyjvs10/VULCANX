@@ -25,9 +25,27 @@ from core.dorker import GoogleDorker
 from core.discovery import PathEnumerator
 from core.har_parser import HARParser
 from core.live_browser import LiveBrowserInterceptor
+from core.correlate import Correlator
 
 def main():
-    parser = argparse.ArgumentParser(description="VulcanX - Advanced Web Application Source Code Scanner (Client-Side)")
+    parser = argparse.ArgumentParser(
+        description="VulcanX - Advanced Web Security HUD with Live Browser Interception",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Default: Launch live browser HUD (recommended)
+  python3 vulcanx.py -u https://target.com
+
+  # With cookies for authenticated testing
+  python3 vulcanx.py -u https://target.com -c 'session=abc123'
+
+  # Static crawl only (no live browser)
+  python3 vulcanx.py -u https://target.com --static
+
+  # Scan from HAR file
+  python3 vulcanx.py --har capture.har
+"""
+    )
     parser.add_argument("-u", "--url", required=False, help="Target URL (e.g., https://example.com/dashboard)")
     parser.add_argument("-c", "--cookies", help="Session Cookies (e.g., 'sessionid=xyz; auth=abc')")
     parser.add_argument("-H", "--headers", action="append", help="Custom Headers (e.g., 'Authorization: Bearer token')")
@@ -42,7 +60,11 @@ def main():
     parser.add_argument("--ignore-list", help="Path to a text file containing strings/regexes to ignore (False Positives)")
     parser.add_argument("--update-db", action="store_true", help="Update the local vulnerability database from NVD")
     parser.add_argument("--har", help="Path to a HAR file to ingest and scan (Bypasses active crawling)")
-    parser.add_argument("-m", "--manual-browse", action="store_true", help="Launch a live browser for manual interaction and dynamically scan all intercepted traffic.")
+    parser.add_argument("-m", "--manual-browse", action="store_true", help="[DEFAULT] Launch Live Browser HUD for real-time interception and analysis.")
+    parser.add_argument("--static", action="store_true", help="Run static crawler only (no live browser).")
+    parser.add_argument("--scope-extra", action="append", help="Additional in-scope hostname for manual-browse mode (e.g. api.target.com). Repeatable.")
+    parser.add_argument("--har-out", help="Save all intercepted traffic from manual-browse mode to a HAR file on exit.")
+    parser.add_argument("--no-dom-sinks", action="store_true", help="Disable runtime DOM-sink instrumentation (innerHTML/eval/document.write/etc) in manual-browse mode.")
     
     # Auto-Login Arguments
     parser.add_argument("--login-url", help="Login Page URL for Auto-Login")
@@ -65,9 +87,14 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.url and not args.har:
+    if not args.url and not args.har and not args.update_db:
         print("[-] Error: You must provide either a Target URL (-u) or a HAR file (--har).")
+        parser.print_help()
         sys.exit(1)
+
+    # If a URL is given and neither --static nor --har, default to live browser mode
+    if args.url and not args.static and not args.har:
+        args.manual_browse = True
 
     # Load from config.json if it exists
     config = {}
@@ -90,13 +117,24 @@ def main():
 
     # Live Browser Mode Execution
     if args.manual_browse:
-        if not args.url:
-            print("[-] Error: You must provide a Target URL (-u) to start the Live Browser.")
-            sys.exit(1)
-            
         analyzer = Analyzer(vuln_db=vuln_db)
-        interceptor = LiveBrowserInterceptor(analyzer)
+        interceptor = LiveBrowserInterceptor(
+            analyzer,
+            scope_extra=args.scope_extra,
+            har_out=args.har_out,
+            dom_sinks=not args.no_dom_sinks
+        )
         interceptor.start(args.url)
+
+        if analyzer.findings:
+            print("[*] Correlating live findings...")
+            correlator = Correlator(analyzer.findings)
+            correlated = correlator.correlate()
+            reporter = Reporter(correlated, verbose=args.verbose)
+            reporter.print_summary()
+            if args.output:
+                reporter.save(args.output)
+                print(f"[+] Manual-browse session report saved to {args.output}")
         sys.exit(0)
 
     # --- Discovery & Reconnaissance Features ---
@@ -542,8 +580,12 @@ def main():
         print(f"Static Findings: {findings_summary['static']}")
         print(f"Dynamic Interceptions: {findings_summary['dynamic']}")
         
+        print("[*] Correlating findings for advanced vulnerability chaining...")
+        correlator = Correlator(filtered_findings)
+        correlated_findings = correlator.correlate()
+        
         print("\n[*] Generating Comprehensive Report...")
-        reporter = Reporter(filtered_findings, verbose=args.verbose)
+        reporter = Reporter(correlated_findings, verbose=args.verbose)
         reporter.print_summary()
 
         # Save Report if requested
@@ -558,12 +600,14 @@ def main():
 
     # Handle DB Update
     if args.update_db:
-        print("[*] Updating Vulnerability Database...")
-        updater = NVDUpdater()
-        for lib in ["jquery", "bootstrap", "angularjs", "react", "vue", "crypto-js", "lodash", "moment"]:
-            updater.update(lib, limit=15)
-        print("[+] Vulnerability Database update complete.")
-        if not args.url: sys.exit(0)
+        print("[*] Updating Vulnerability Database via standalone script...")
+        import subprocess
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts', 'update_vdb.py')
+        if os.path.exists(script_path):
+            subprocess.run([sys.executable, script_path])
+        else:
+            print(f"[-] Error: Could not find update script at {script_path}")
+        if not args.url and not args.manual_browse: sys.exit(0)
 
     # 0. Auto-Login (if requested)
     if args.login_url and args.username and args.password:
@@ -681,9 +725,14 @@ def main():
             except Exception as e:
                 print(f"[-] Failed to process ignore list: {e}")
 
-        # 4. Report
+        # 4. Correlate
+        print("[*] Correlating findings for advanced vulnerability chaining...")
+        correlator = Correlator(filtered_findings)
+        correlated_findings = correlator.correlate()
+
+        # 5. Report
         print("[*] Generating report...")
-        reporter = Reporter(filtered_findings, verbose=args.verbose)
+        reporter = Reporter(correlated_findings, verbose=args.verbose)
         reporter.print_summary()
         
         report_file = args.output if args.output else "vulcanx_report.html"
