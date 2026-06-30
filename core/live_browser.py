@@ -21,6 +21,7 @@ try:
     from seleniumwire import webdriver
     _SELENIUM_WIRE_AVAILABLE = True
 except ImportError:
+    from selenium import webdriver
     _SELENIUM_WIRE_AVAILABLE = False
 
 
@@ -666,8 +667,8 @@ class LiveBrowserInterceptor:
 
     def start(self, start_url):
         if not _SELENIUM_WIRE_AVAILABLE:
-            print("[-] selenium-wire is not installed. Run: pip install selenium-wire --break-system-packages")
-            return
+            print("[!] WARNING: selenium-wire is not available on this Python version (likely Python 3.14+).")
+            print("[!] VulcanX is falling back to standard Selenium. Network Traffic tracking will be disabled, but DOM tracking and HUD will work perfectly.")
 
         print("[*] Launching Live Browser Mode (using Firefox)...")
         from selenium.webdriver.firefox.options import Options as FirefoxOptions
@@ -793,7 +794,8 @@ class LiveBrowserInterceptor:
                         request.create_response(500, headers={'Content-Type': 'application/json'}, body=resp)
                     return
 
-        self.driver.request_interceptor = interceptor
+        if _SELENIUM_WIRE_AVAILABLE:
+            self.driver.request_interceptor = interceptor
         self.driver.get(start_url)
         self.last_seen_url = start_url
         if self.dom_sinks_enabled:
