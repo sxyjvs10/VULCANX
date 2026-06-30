@@ -1327,12 +1327,12 @@ class LiveBrowserInterceptor:
                 elif severity == "LOW": sev_color = "#ffff00"
                 elif severity == "HIGH": sev_color = "#ff3333"
 
-                title = h.get('description', '').replace("'", "\'").replace("`", "\`").replace("$", "\$")
-                cwe = h.get('context', '').replace("'", "\'")
+                title = h.get('description', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
+                cwe = h.get('context', '').replace("'", "\\'")
                 conf = h.get('confidence', 'N/A')
-                url_s = h.get('url', '').replace("'", "\'").replace("`", "\`")
+                url_s = h.get('url', '').replace("'", "\\'").replace("`", "\\`")
                 if len(url_s) > 70: url_s = url_s[:70] + "..."
-                remediation = h.get('remediation', '').replace("'", "\'").replace("`", "\`").replace("$", "\$")
+                remediation = h.get('remediation', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
 
                 suggestions_html += f"""
                 <details style="margin-bottom:8px; background:rgba(20,40,30,0.8); border:1px solid #005544; border-radius:6px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
