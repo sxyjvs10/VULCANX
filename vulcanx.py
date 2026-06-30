@@ -13,6 +13,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Add parent directory to path to allow importing modules from root
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+if os.name == 'nt':
+    os.system("") # Enable ANSI colors on Windows cmd
+
 from core.behavior import SessionManager
 from core.mapper import Crawler
 from core.engine import Analyzer
@@ -740,7 +743,8 @@ Examples:
         
         try:
             import webbrowser
-            report_path = f"file://{os.path.abspath(report_file)}"
+            from pathlib import Path
+            report_path = Path(report_file).resolve().as_uri()
             print(f"[*] Opening HTML report automatically in default browser...")
             webbrowser.open(report_path)
         except Exception as e:

