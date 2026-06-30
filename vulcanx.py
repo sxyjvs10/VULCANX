@@ -25,7 +25,7 @@ from core.dorker import GoogleDorker
 from core.discovery import PathEnumerator
 from core.har_parser import HARParser
 from core.live_browser import LiveBrowserInterceptor
-from core.correlate import Correlator
+from core.correlate import CorrelationEngine
 
 def main():
     parser = argparse.ArgumentParser(
