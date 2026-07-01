@@ -95,6 +95,9 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
+    if args.url and not args.url.startswith(('http://', 'https://')):
+        args.url = 'https://' + args.url
+
     # If a URL is given and neither --static nor --har, default to live browser mode
     if args.url and not args.static and not args.har:
         args.manual_browse = True
