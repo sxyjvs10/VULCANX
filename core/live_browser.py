@@ -677,14 +677,20 @@ class LiveBrowserInterceptor:
         self._api_port = self._api_server.start(self)
         print(f"[*] VulcanX API server running on http://127.0.0.1:{self._api_port}")
 
+        # Create the VulcanX Proxy Chrome Extension (enables mid-session proxy switching)
+        from core.api_server import create_proxy_extension
+        ext_path = create_proxy_extension(self._api_port)
+        print(f"[*] Proxy extension created at: {ext_path}")
+
         opts = ChromeOptions()
         opts.page_load_strategy = 'eager'
         # Enable CDP performance logging for network interception
         opts.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+        # Load our proxy controller extension
+        opts.add_argument(f'--load-extension={ext_path}')
         # Suppress certificate errors for HTTP/legacy sites
         opts.add_argument('--ignore-certificate-errors')
         opts.add_argument('--allow-insecure-localhost')
-        opts.add_argument('--disable-web-security')
         opts.add_argument('--no-sandbox')
         opts.add_argument('--disable-dev-shm-usage')
 
