@@ -1,260 +1,188 @@
 MAP_TAB_JS = r"""
 container.innerHTML = '';
-                
-                var scanBtn = document.createElement('button');
-                scanBtn.innerText = 'Scan LinkMap';
-                scanBtn.style.width = '100%';
-                scanBtn.style.padding = '8px';
-                scanBtn.style.background = '#800000';
-                scanBtn.style.color = '#fff';
-                scanBtn.style.border = '1px solid #ff0055';
-                scanBtn.style.borderRadius = '4px';
-                scanBtn.style.cursor = 'pointer';
-                scanBtn.style.fontWeight = 'bold';
-                scanBtn.style.marginBottom = '12px';
-                
-                var statusDiv = document.createElement('div');
-                statusDiv.style.marginBottom = '12px';
-                statusDiv.style.fontSize = '10px';
-                statusDiv.style.color = '#aaa';
-                statusDiv.innerText = "Status: Ready";
-                
-                var linksList = document.createElement('ul');
-                linksList.style.listStyleType = 'none';
-                linksList.style.padding = '0';
-                linksList.style.margin = '0';
-                
-                var links = Array.from(document.querySelectorAll('a[href]')).map(a => {
-                    // Browsers usually resolve a.href to a full URL, but just in case:
-                    try { return new URL(a.getAttribute('href'), window.location.href).href; }
-                    catch(e) { return a.href; }
+
+                // ── Header ─────────────────────────────────────────────────────
+                var hdr = document.createElement('div');
+                hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;';
+
+                var title = document.createElement('div');
+                title.innerText = '🗺 Site Linkmap';
+                title.style.cssText = 'font-weight:bold;color:#ffcc00;font-size:13px;';
+                hdr.appendChild(title);
+
+                var traffic = window.__vulcanx_state ? (window.__vulcanx_state.traffic || []) : [];
+
+                var badge = document.createElement('span');
+                badge.style.cssText = 'background:#222;border:1px solid #444;color:#aaa;border-radius:10px;padding:2px 8px;font-size:10px;';
+                badge.innerText = traffic.length + ' URLs total';
+                hdr.appendChild(badge);
+                container.appendChild(hdr);
+
+                // ── Filter bar ──────────────────────────────────────────────────
+                var filterRow = document.createElement('div');
+                filterRow.style.cssText = 'display:flex;gap:6px;margin-bottom:10px;align-items:center;';
+
+                var filterInput = document.createElement('input');
+                filterInput.type = 'text';
+                filterInput.placeholder = 'Filter URLs…';
+                filterInput.style.cssText = 'flex:1;background:#111;color:#fff;border:1px solid #444;padding:5px 8px;border-radius:4px;font-size:11px;';
+
+                var methodFilter = document.createElement('select');
+                ['ALL','GET','POST','DISCOVERED'].forEach(function(m) {
+                    var o = document.createElement('option');
+                    o.value = m; o.text = m;
+                    methodFilter.appendChild(o);
                 });
-                var internalLinks = links.filter(href => href.startsWith(window.location.origin) && !href.includes('#') && !href.startsWith('javascript:'));
-                var uniqueLinks = [...new Set(internalLinks)];
-                
-                scanBtn.onclick = async function() {
-                    if (uniqueLinks.length === 0) {
-                        alert("No internal links found to scan.");
-                        return;
-                    }
-                    scanBtn.disabled = true;
-                        scanBtn.style.opacity = '0.5';
-                        statusDiv.innerText = `Scanning: 0 / ${uniqueLinks.length}`;
-                        
-                        let completed = 0;
-                        for (let i = 0; i < uniqueLinks.length; i++) {
-                            let link = uniqueLinks[i];
-                            let li = linksList.children[i];
-                            try {
-                                li.style.color = '#ffcc00'; // in progress
-                                
-                                // Open link in a new background tab
-                                var newWin = window.open(link, '_blank');
-                                
-                                // Wait for it to load, then close it
-                                await new Promise(r => setTimeout(r, 2500)); 
-                                if (newWin && !newWin.closed) {
-                                    newWin.close();
-                                }
-                                
-                                li.style.color = '#00ff55'; // done
-                            } catch(e) {
-                                li.style.color = '#ff0055'; // error
-                            }
-                            completed++;
-                            statusDiv.innerText = `Scanning: ${completed} / ${uniqueLinks.length}`;
-                        }
-                        
-                        statusDiv.innerText = 'Scan Complete! Check Traffic and Findings tabs.';
-                        setTimeout(() => {
-                            scanBtn.disabled = false;
-                            scanBtn.style.opacity = '1';
-                        }, 2000);
-                };
-                
-                container.appendChild(scanBtn);
-                container.appendChild(statusDiv);
-                
-                uniqueLinks.forEach(link => {
-                    var li = document.createElement('li');
-                    li.style.padding = '4px 0';
-                    li.style.borderBottom = '1px solid #333';
-                    li.style.fontSize = '10px';
-                    li.style.wordBreak = 'break-all';
-                    li.style.color = '#aaa';
-                    li.innerText = link.replace(window.location.origin, '');
-                    linksList.appendChild(li);
-                });
-                
-                if (uniqueLinks.length === 0) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.innerText = 'No internal links found on this page.';
-                    emptyDiv.style.color = '#666';
-                    emptyDiv.style.textAlign = 'center';
-                    emptyDiv.style.marginTop = '20px';
-                    container.appendChild(emptyDiv);
-                } else {
-                    container.appendChild(linksList);
-                }
+                methodFilter.style.cssText = 'background:#111;color:#fff;border:1px solid #444;padding:5px;border-radius:4px;font-size:11px;';
 
+                var scanAllBtn = document.createElement('button');
+                scanAllBtn.innerText = '⚡ Scan All';
+                scanAllBtn.title = 'Open every discovered URL in a background tab to trigger VulcanX analysis';
+                scanAllBtn.style.cssText = 'padding:5px 10px;background:#800000;color:#fff;border:1px solid #ff0055;border-radius:4px;cursor:pointer;font-size:11px;font-weight:bold;white-space:nowrap;';
 
-                if (items.length === 0) {
-                    var emptyDiv = document.createElement('div');
-                    emptyDiv.style.color = '#666';
-                    emptyDiv.style.textAlign = 'center';
-                    emptyDiv.style.marginTop = '20px';
-                    emptyDiv.innerText = 'No cookies or storage keys found.';
-                    container.appendChild(emptyDiv);
-                    return;
-                }
+                filterRow.appendChild(filterInput);
+                filterRow.appendChild(methodFilter);
+                filterRow.appendChild(scanAllBtn);
+                container.appendChild(filterRow);
 
-                var fillAllXSS = document.createElement('button');
-                fillAllXSS.innerText = 'Fill All XSS';
-                fillAllXSS.style.width = '30%';
-                fillAllXSS.style.padding = '8px';
-                fillAllXSS.style.background = '#440055';
-                fillAllXSS.style.color = '#fff';
-                fillAllXSS.style.border = '1px solid #ff00ff';
-                fillAllXSS.style.borderRadius = '4px';
-                fillAllXSS.style.cursor = 'pointer';
-                fillAllXSS.style.fontWeight = 'bold';
-                fillAllXSS.style.marginBottom = '12px';
-                fillAllXSS.style.marginRight = '2%';
-                fillAllXSS.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, '\"><script>alert(document.domain)</script>'); } else { input.value = '\"><script>alert(document.domain)</script>'; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff00ff';
-                    });
-                };
-                container.appendChild(fillAllXSS);
-                
-                var fillAllSQLi = document.createElement('button');
-                fillAllSQLi.innerText = 'Fill All SQLi';
-                fillAllSQLi.style.width = '30%';
-                fillAllSQLi.style.padding = '8px';
-                fillAllSQLi.style.background = '#331100';
-                fillAllSQLi.style.color = '#fff';
-                fillAllSQLi.style.border = '1px solid #ff5500';
-                fillAllSQLi.style.borderRadius = '4px';
-                fillAllSQLi.style.cursor = 'pointer';
-                fillAllSQLi.style.fontWeight = 'bold';
-                fillAllSQLi.style.marginBottom = '12px';
-                fillAllSQLi.style.marginRight = '2%';
-                fillAllSQLi.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, "admin' --"); } else { input.value = "admin' --"; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '2px solid #ff5500';
-                    });
-                };
-                container.appendChild(fillAllSQLi);
-                
-                var tamperDOM = document.createElement('button');
-                tamperDOM.innerText = 'Tamper DOM (Reveal All)';
-                tamperDOM.style.width = '100%';
-                tamperDOM.style.padding = '8px';
-                tamperDOM.style.background = '#004400';
-                tamperDOM.style.color = '#00ff55';
-                tamperDOM.style.border = '1px solid #00ff55';
-                tamperDOM.style.borderRadius = '4px';
-                tamperDOM.style.cursor = 'pointer';
-                tamperDOM.style.fontWeight = 'bold';
-                tamperDOM.style.marginBottom = '12px';
-                tamperDOM.onclick = function() {
-                    // Reveal hidden inputs, convert passwords to text, remove maxlengths and disabled attributes
-                    var modifiedCount = 0;
-                    document.querySelectorAll('input, select, textarea, button').forEach(el => {
-                        if (el.type === 'hidden') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.type === 'password') {
-                            el.type = 'text';
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('disabled')) {
-                            el.removeAttribute('disabled');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('readonly')) {
-                            el.removeAttribute('readonly');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                        if (el.hasAttribute('maxlength')) {
-                            el.removeAttribute('maxlength');
-                            el.style.border = '2px solid #00ff55';
-                            modifiedCount++;
-                        }
-                    });
-                    if (modifiedCount > 0) {
-                        alert("DOM Tampering Active! " + modifiedCount + " elements modified (revealed hidden fields, removed disabled/readonly/maxlength attributes).");
-                    } else {
-                        alert("No restricted DOM elements found to tamper with.");
-                    }
-                };
-                container.appendChild(tamperDOM);
+                // ── Status bar ──────────────────────────────────────────────────
+                var statusBar = document.createElement('div');
+                statusBar.style.cssText = 'font-size:10px;color:#888;margin-bottom:8px;';
+                statusBar.innerText = 'Showing all intercepted + discovered URLs. DISCOVERED = crawled by VulcanX (not manually browsed).';
+                container.appendChild(statusBar);
 
-                var clearAll = document.createElement('button');
-                clearAll.innerText = 'Clear Forms';
-                clearAll.style.width = '30%';
-                clearAll.style.padding = '8px';
-                clearAll.style.background = '#222';
-                clearAll.style.color = '#fff';
-                clearAll.style.border = '1px solid #444';
-                clearAll.style.borderRadius = '4px';
-                clearAll.style.cursor = 'pointer';
-                clearAll.style.fontWeight = 'bold';
-                clearAll.style.marginBottom = '12px';
-                clearAll.onclick = function() {
-                    inputs.forEach(input => {
-                        var nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-                        var nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
-                        var setter = input.tagName === 'TEXTAREA' ? nativeTextAreaValueSetter : nativeInputValueSetter;
-                        if (setter) { setter.call(input, ""); } else { input.value = ""; }
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.dispatchEvent(new Event('change', { bubbles: true }));
-                        input.style.border = '';
-                    });
-                };
-                container.appendChild(clearAll);
-
+                // ── Table ───────────────────────────────────────────────────────
+                var tableWrapper = document.createElement('div');
+                tableWrapper.style.cssText = 'overflow-y:auto;max-height:340px;';
 
                 var table = document.createElement('table');
-                table.className = 'vx-table';
-                table.innerHTML = `<thead>
-                                    <tr>
-                                        <th>Source</th>
-                                        <th>Key</th>
-                                        <th>Value</th>
-                                    </tr>
-                                   </thead>`;
+                table.style.cssText = 'width:100%;border-collapse:collapse;font-size:10px;';
+                table.innerHTML = `<thead style="position:sticky;top:0;background:#151520;z-index:1;">
+                    <tr>
+                        <th style="text-align:left;padding:5px;color:#aaa;border-bottom:1px solid #333;width:70px;">Method</th>
+                        <th style="text-align:left;padding:5px;color:#aaa;border-bottom:1px solid #333;width:45px;">Status</th>
+                        <th style="text-align:left;padding:5px;color:#aaa;border-bottom:1px solid #333;">URL</th>
+                    </tr>
+                </thead>`;
                 var tbody = document.createElement('tbody');
-                
-                var sensitiveKeys = /token|session|secret|jwt|password|key|admin|auth|role/i;
-                items.forEach(item => {
-                    var tr = document.createElement('tr');
-                    var isSensitive = sensitiveKeys.test(item.key) || sensitiveKeys.test(item.value);
-                    if (isSensitive) {
-                        tr.style.background = 'rgba(255, 0, 85, 0.15)';
+
+                function statusColor(code) {
+                    if (code === 0)   return '#888';
+                    if (code === -1)  return '#ff4444';
+                    if (code < 300)   return '#00ff55';
+                    if (code < 400)   return '#ffcc00';
+                    if (code < 500)   return '#ff9900';
+                    return '#ff4444';
+                }
+
+                function methodColor(m) {
+                    if (m === 'POST')       return '#ff9900';
+                    if (m === 'PUT')        return '#ff5500';
+                    if (m === 'DELETE')     return '#ff0055';
+                    if (m === 'DISCOVERED') return '#7c4dff';
+                    return '#00ccff';
+                }
+
+                function renderRows(items) {
+                    tbody.innerHTML = '';
+                    var shown = 0;
+                    items.forEach(function(entry) {
+                        var tr = document.createElement('tr');
+                        tr.style.borderBottom = '1px solid #1a1a24';
+                        tr.style.cursor = 'pointer';
+                        tr.onmouseenter = function() { tr.style.background = 'rgba(255,255,255,0.04)'; };
+                        tr.onmouseleave = function() { tr.style.background = ''; };
+
+                        var tdM = document.createElement('td');
+                        tdM.style.cssText = 'padding:4px 5px;font-weight:bold;';
+                        tdM.style.color = methodColor(entry.method);
+                        tdM.innerText = entry.method || 'GET';
+
+                        var tdS = document.createElement('td');
+                        tdS.style.cssText = 'padding:4px 5px;font-weight:bold;';
+                        tdS.style.color = statusColor(entry.status_code);
+                        tdS.innerText = entry.status_code > 0 ? entry.status_code : (entry.status_code === -1 ? 'ERR' : '…');
+
+                        var tdU = document.createElement('td');
+                        tdU.style.cssText = 'padding:4px 5px;word-break:break-all;color:#ccc;';
+                        var dispUrl = entry.display_url || entry.url || '';
+                        tdU.innerText = dispUrl;
+                        tdU.title = entry.url || '';
+
+                        // Click → open in new tab
+                        tr.onclick = function() {
+                            if (entry.url) window.open(entry.url, '_blank');
+                        };
+
+                        tr.appendChild(tdM);
+                        tr.appendChild(tdS);
+                        tr.appendChild(tdU);
+                        tbody.appendChild(tr);
+                        shown++;
+                    });
+                    badge.innerText = shown + ' / ' + traffic.length + ' URLs';
+                }
+
+                function applyFilter() {
+                    var q = filterInput.value.toLowerCase();
+                    var m = methodFilter.value;
+                    var filtered = traffic.filter(function(e) {
+                        var urlMatch = !q || (e.url || '').toLowerCase().includes(q);
+                        var methodMatch = m === 'ALL' || (e.method || 'GET') === m;
+                        return urlMatch && methodMatch;
+                    });
+                    renderRows(filtered);
+                }
+
+                filterInput.oninput = applyFilter;
+                methodFilter.onchange = applyFilter;
+
+                // ── Scan-All button ─────────────────────────────────────────────
+                scanAllBtn.onclick = async function() {
+                    var toScan = traffic.filter(function(e) {
+                        return e.method === 'DISCOVERED' || e.method === 'GET';
+                    });
+                    if (toScan.length === 0) {
+                        statusBar.innerText = 'No URLs to scan. Browse the app first!';
+                        return;
                     }
-                    tr.innerHTML = `<td style="color:#00ff55;font-weight:bold;">${item.source}</td>
-                                    <td style="color:#ffcc00;font-weight:bold;">${item.key}</td>
-                                    <td style="color:#aaa;word-break:break-all;">${item.value}</td>`;
-                    tbody.appendChild(tr);
-                });
+                    scanAllBtn.disabled = true;
+                    scanAllBtn.style.opacity = '0.5';
+                    for (var i = 0; i < toScan.length; i++) {
+                        var entry = toScan[i];
+                        statusBar.innerText = 'Opening: ' + (entry.display_url || entry.url) + ' (' + (i+1) + '/' + toScan.length + ')';
+                        var w = window.open(entry.url, '_blank');
+                        await new Promise(function(r) { setTimeout(r, 2000); });
+                        if (w && !w.closed) w.close();
+                    }
+                    statusBar.innerText = 'Scan complete! Check the Findings and Traffic tabs.';
+                    scanAllBtn.disabled = false;
+                    scanAllBtn.style.opacity = '1';
+                };
+
+                // Initial render
                 table.appendChild(tbody);
-                container.appendChild(table);
+                tableWrapper.appendChild(table);
+                container.appendChild(tableWrapper);
+                renderRows(traffic);
+
+                // ── Stats panel ─────────────────────────────────────────────────
+                var stats = document.createElement('div');
+                stats.style.cssText = 'margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;';
+
+                var disc = traffic.filter(function(e){return e.method==='DISCOVERED';}).length;
+                var post = traffic.filter(function(e){return e.method==='POST';}).length;
+                var err  = traffic.filter(function(e){return e.status_code >= 400;}).length;
+
+                [{label:'Total', val: traffic.length,  color:'#00ccff'},
+                 {label:'Discovered', val: disc,         color:'#7c4dff'},
+                 {label:'POST', val: post,               color:'#ff9900'},
+                 {label:'Errors 4xx/5xx', val: err,      color:'#ff4444'}
+                ].forEach(function(s) {
+                    var chip = document.createElement('div');
+                    chip.style.cssText = 'background:#111;border:1px solid #333;border-radius:4px;padding:4px 10px;font-size:10px;';
+                    chip.innerHTML = '<span style="color:' + s.color + ';font-weight:bold;">' + s.val + '</span> <span style="color:#666;">' + s.label + '</span>';
+                    stats.appendChild(chip);
+                });
+                container.appendChild(stats);
 """

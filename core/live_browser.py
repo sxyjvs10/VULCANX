@@ -662,6 +662,9 @@ class LiveBrowserInterceptor:
         self._cdp_pending = {}  # requestId -> {url, method, headers, body}
         self._api_server = None
         self._api_port = None
+        # Active link discovery
+        self.discovered_links = set()   # all URLs found in DOM/crawl
+        self.scanned_links   = set()    # URLs already fetched+analyzed
 
     def start(self, start_url):
         print("[*] Launching Live Browser Mode (using Chrome + CDP)...")
@@ -853,16 +856,24 @@ class LiveBrowserInterceptor:
                     elif set(handles) != self.known_handles:
                         self.known_handles = set(handles)
 
-                    # Re-inject DOM hooks on navigation
-                    if self.dom_sinks_enabled:
-                        try:
-                            cur = self.driver.current_url
-                        except Exception:
-                            cur = self.last_seen_url
-                        if cur != self.last_seen_url:
-                            self.last_seen_url = cur
-                            self.current_url = cur
+                    # ── Navigation detection (always runs, regardless of dom_sinks) ──
+                    try:
+                        cur = self.driver.current_url
+                    except Exception:
+                        cur = self.last_seen_url
+
+                    if cur != self.last_seen_url:
+                        self.last_seen_url = cur
+                        self.current_url = cur
+                        # Discover all links on the newly loaded page
+                        threading.Thread(
+                            target=self._discover_page_links,
+                            daemon=True
+                        ).start()
+                        if self.dom_sinks_enabled:
                             self._inject_dom_hooks()
+
+                    if self.dom_sinks_enabled:
                         self._drain_dom_sinks()
 
                     self._inject_ui_alert(None)
@@ -1017,6 +1028,179 @@ class LiveBrowserInterceptor:
                 args=(url, req_id),
                 daemon=True
             ).start()
+
+    def _discover_page_links(self):
+        """
+        Extracts every link/URL from the current page DOM using JavaScript,
+        adds them to the linkmap, and actively fetches + scans each one in
+        a background thread. Runs whenever the user navigates to a new page.
+        """
+        try:
+            # Comprehensive DOM link extraction — anchors, forms, scripts, iframes, images
+            links = self.driver.execute_script("""
+                var found = new Set();
+                var base = location.href;
+                // <a href>, <link href>
+                document.querySelectorAll('[href]').forEach(function(el) {
+                    try {
+                        var u = new URL(el.getAttribute('href'), base).href;
+                        if (!u.startsWith('javascript:') && !u.startsWith('mailto:')) found.add(u);
+                    } catch(e) {}
+                });
+                // <script src>, <img src>, <iframe src>, <video src>, <source src>
+                document.querySelectorAll('[src]').forEach(function(el) {
+                    try {
+                        var u = new URL(el.getAttribute('src'), base).href;
+                        found.add(u);
+                    } catch(e) {}
+                });
+                // <form action>
+                document.querySelectorAll('form[action]').forEach(function(f) {
+                    try {
+                        var u = new URL(f.getAttribute('action'), base).href;
+                        found.add(u);
+                    } catch(e) {}
+                });
+                // Inline JS — pull bare strings that look like paths e.g. '/api/user'
+                var jsBlobs = [];
+                document.querySelectorAll('script:not([src])').forEach(function(s) {
+                    jsBlobs.push(s.textContent);
+                });
+                var pathRe = /['"](\/[a-zA-Z0-9_\-\/\.?=&%#@]+)['"]/g;
+                jsBlobs.forEach(function(blob) {
+                    var m;
+                    while ((m = pathRe.exec(blob)) !== null) {
+                        try { found.add(new URL(m[1], base).href); } catch(e) {}
+                    }
+                });
+                return Array.from(found);
+            """)
+        except Exception:
+            return
+
+        if not links:
+            return
+
+        new_links = []
+        for url in links:
+            if not url or url.startswith('data:') or url.startswith('blob:'):
+                continue
+            if not self.scope.in_scope(url):
+                continue
+            if url in self.discovered_links:
+                continue
+            self.discovered_links.add(url)
+            new_links.append(url)
+
+            # Add to live traffic as a discovered (not-yet-fetched) entry
+            display_url = url[:150] + '...' if len(url) > 150 else url
+            self.live_traffic.append({
+                'id': f'disc_{hash(url) & 0xFFFFFF}',
+                'method': 'DISCOVERED',
+                'url': url,
+                'display_url': display_url,
+                'status_code': 0,
+                'time': datetime.datetime.now().strftime('%H:%M:%S'),
+                'req_headers': {},
+                'req_body': ''
+            })
+            if len(self.live_traffic) > 500:
+                self.live_traffic.pop(0)
+
+        if new_links:
+            print(f"[+] Discovered {len(new_links)} new link(s) on {self.current_url}")
+
+        # Actively fetch and scan each discovered link in background threads
+        for url in new_links:
+            threading.Thread(
+                target=self._fetch_and_analyze_link,
+                args=(url,),
+                daemon=True
+            ).start()
+
+    def _fetch_and_analyze_link(self, url):
+        """
+        Actively fetches a discovered link using Python requests and runs
+        the full security analysis on its response headers and body.
+        Updates the live_traffic entry with the real status code.
+        """
+        if url in self.scanned_links:
+            return
+        self.scanned_links.add(url)
+
+        try:
+            import requests as req_lib
+            headers = {
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/124.0.0.0 Safari/537.36'
+                ),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+            }
+            resp = req_lib.get(url, headers=headers, timeout=10, verify=False,
+                               allow_redirects=True)
+
+            # Update the traffic entry status code
+            for entry in self.live_traffic:
+                if entry.get('url') == url and entry.get('method') == 'DISCOVERED':
+                    entry['status_code'] = resp.status_code
+                    break
+
+            # Analyze response headers (CSP, HSTS, cookies, CORS …)
+            resp_headers = dict(resp.headers)
+            self._analyze_cdp_response(url, resp.status_code, resp_headers)
+
+            # Analyze response body (secrets, XSS sinks, SQLi patterns …)
+            ctype = resp_headers.get('Content-Type', resp_headers.get('content-type', '')).lower()
+            if any(t in ctype for t in ('text/html', 'javascript', 'json', 'text/plain')):
+                body = resp.text[:200000]  # cap at 200 KB
+                if body:
+                    findings = self.analyzer.scan({url: body}, set())
+                    for f in findings:
+                        f.setdefault('source', 'CRAWLED_RESPONSE')
+                        self._inject_ui_alert(f)
+
+            # Recursively discover links on HTML pages (one level deep)
+            if 'text/html' in ctype:
+                try:
+                    from bs4 import BeautifulSoup
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    for tag in soup.find_all(['a', 'link'], href=True):
+                        try:
+                            child = urllib.parse.urljoin(url, tag['href'])
+                            if (self.scope.in_scope(child)
+                                    and child not in self.discovered_links
+                                    and not child.startswith('javascript:')):
+                                self.discovered_links.add(child)
+                                display_url = child[:150] + '...' if len(child) > 150 else child
+                                self.live_traffic.append({
+                                    'id': f'disc_{hash(child) & 0xFFFFFF}',
+                                    'method': 'DISCOVERED',
+                                    'url': child,
+                                    'display_url': display_url,
+                                    'status_code': 0,
+                                    'time': datetime.datetime.now().strftime('%H:%M:%S'),
+                                    'req_headers': {},
+                                    'req_body': ''
+                                })
+                                threading.Thread(
+                                    target=self._fetch_and_analyze_link,
+                                    args=(child,),
+                                    daemon=True
+                                ).start()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        except Exception:
+            # Update status to indicate fetch failed
+            for entry in self.live_traffic:
+                if entry.get('url') == url and entry.get('method') == 'DISCOVERED':
+                    entry['status_code'] = -1
+                    break
 
     def _check_tls_vulnerabilities(self, url):
         import urllib.parse
