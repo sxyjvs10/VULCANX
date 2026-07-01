@@ -677,6 +677,7 @@ class LiveBrowserInterceptor:
         self.har = HARBuilder(start_url) if self.har_out else None
 
         opts = FirefoxOptions()
+        opts.page_load_strategy = 'eager'  # Do not wait for all assets to load
         # We don't use headless because this is the manual browse mode
         opts.set_preference("devtools.netmonitor.enabled", True)
         opts.set_preference("devtools.netmonitor.persistlog", True)
