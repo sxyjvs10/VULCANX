@@ -889,9 +889,12 @@ class LiveBrowserInterceptor:
     def _monitor_loop(self):
         while self.running:
             try:
-                # (Tab state and hook injection moved to the end of the loop)
+                if _SELENIUM_WIRE_AVAILABLE:
+                    reqs = self.driver.requests
+                else:
+                    reqs = []
 
-                for request in self.driver.requests:
+                for request in reqs:
                     url = request.url
 
                     if self.har is not None and request.response:
