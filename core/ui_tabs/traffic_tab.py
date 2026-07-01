@@ -16,7 +16,7 @@ container.innerHTML = '';
                 clearBtn.style.borderRadius = '3px';
                 clearBtn.style.cursor = 'pointer';
                 clearBtn.onclick = async function() {
-                    try { await fetch('/api/clear_traffic', {method: 'POST'}); } catch(e) {}
+                    try { await fetch('http://127.0.0.1:' + (window.__vulcanx_api_port||0) + '/api/clear_traffic', {method: 'POST'}); } catch(e) {}
                     window.__vulcanx_state.traffic = [];
                     window.__vulcanx_render();
                 };

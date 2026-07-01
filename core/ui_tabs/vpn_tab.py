@@ -36,7 +36,7 @@ container.innerHTML = '';
                 torBtn.style.borderRadius = '4px';
                 torBtn.onclick = function() {
                     resultDiv.innerText = 'Routing traffic through Tor...';
-                    fetch('/api/vpn', {
+                    fetch('http://127.0.0.1:' + (window.__vulcanx_api_port||0) + '/api/vpn', {
                         method: 'POST',
                         body: JSON.stringify({action: 'enable_tor'}),
                         headers: {'Content-Type': 'application/json'}
@@ -62,7 +62,7 @@ container.innerHTML = '';
                 checkIpBtn.style.marginLeft = '10px';
                 checkIpBtn.onclick = function() {
                     resultDiv.innerText = 'Checking IP address...';
-                    fetch('/api/vpn', {
+                    fetch('http://127.0.0.1:' + (window.__vulcanx_api_port||0) + '/api/vpn', {
                         method: 'POST',
                         body: JSON.stringify({action: 'check_ip'}),
                         headers: {'Content-Type': 'application/json'}
@@ -89,7 +89,7 @@ container.innerHTML = '';
                 disableTorBtn.style.marginLeft = '10px';
                 disableTorBtn.onclick = function() {
                     resultDiv.innerText = 'Disabling Tor proxy...';
-                    fetch('/api/vpn', {
+                    fetch('http://127.0.0.1:' + (window.__vulcanx_api_port||0) + '/api/vpn', {
                         method: 'POST',
                         body: JSON.stringify({action: 'disable_tor'}),
                         headers: {'Content-Type': 'application/json'}

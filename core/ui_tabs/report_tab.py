@@ -76,7 +76,7 @@ container.innerHTML = '';
                 dlHtmlBtn.style.fontSize = '10px';
                 dlHtmlBtn.onclick = async function() {
                     try {
-                        var resp = await fetch('/api/report');
+                        var resp = await fetch('http://127.0.0.1:' + (window.__vulcanx_api_port||0) + '/api/report');
                         if (resp.ok) {
                             var html = await resp.text();
                             var blob = new Blob([html], {type:'text/html'});

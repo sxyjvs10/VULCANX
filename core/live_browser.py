@@ -4,6 +4,10 @@ import base64
 import hashlib
 import urllib.parse
 import datetime
+import threading
+
+from selenium import webdriver
+from core.api_server import VulcanXAPIServer
 
 from core.ui_tabs.vulnerabilities_tab import VULNERABILITIES_TAB_JS
 from core.ui_tabs.traffic_tab import TRAFFIC_TAB_JS
@@ -15,14 +19,6 @@ from core.ui_tabs.dom_tab import DOM_TAB_JS
 from core.ui_tabs.scope_tab import SCOPE_TAB_JS
 from core.ui_tabs.vpn_tab import VPN_TAB_JS
 from core.ui_tabs.report_tab import REPORT_TAB_JS
-
-
-try:
-    from seleniumwire import webdriver
-    _SELENIUM_WIRE_AVAILABLE = True
-except ImportError:
-    from selenium import webdriver
-    _SELENIUM_WIRE_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -662,33 +658,49 @@ class LiveBrowserInterceptor:
         self.har_out = har_out
         self.dom_sinks_enabled = dom_sinks
         self.tor_enabled = False
+        # CDP-based interception state (replaces selenium-wire)
+        self._cdp_pending = {}  # requestId -> {url, method, headers, body}
+        self._api_server = None
+        self._api_port = None
 
     def start(self, start_url):
-        if not _SELENIUM_WIRE_AVAILABLE:
-            print("[!] WARNING: selenium-wire is not available on this Python version (likely Python 3.14+).")
-            print("[!] VulcanX is falling back to standard Selenium. Network Traffic tracking will be disabled, but DOM tracking and HUD will work perfectly.")
-
-        print("[*] Launching Live Browser Mode (using Firefox)...")
-        from selenium.webdriver.firefox.options import Options as FirefoxOptions
-        from selenium.webdriver.firefox.service import Service as FirefoxService
-        from webdriver_manager.firefox import GeckoDriverManager
+        print("[*] Launching Live Browser Mode (using Chrome + CDP)...")
+        from selenium.webdriver.chrome.options import Options as ChromeOptions
+        from selenium.webdriver.chrome.service import Service as ChromeService
+        from webdriver_manager.chrome import ChromeDriverManager
 
         self.scope = ScopeFilter(start_url, extra_hosts=self.scope_extra)
         self.har = HARBuilder(start_url) if self.har_out else None
 
-        opts = FirefoxOptions()
-        opts.page_load_strategy = 'eager'  # Do not wait for all assets to load
-        # We don't use headless because this is the manual browse mode
-        opts.set_preference("devtools.netmonitor.enabled", True)
-        opts.set_preference("devtools.netmonitor.persistlog", True)
-        opts.set_preference("network.http.phishy-userpass-length", 255)
+        # Start local API server (replaces selenium-wire interceptor)
+        self._api_server = VulcanXAPIServer()
+        self._api_port = self._api_server.start(self)
+        print(f"[*] VulcanX API server running on http://127.0.0.1:{self._api_port}")
+
+        opts = ChromeOptions()
+        opts.page_load_strategy = 'eager'
+        # Enable CDP performance logging for network interception
+        opts.set_capability('goog:loggingPrefs', {'performance': 'ALL'})
+        # Suppress certificate errors for HTTP/legacy sites
+        opts.add_argument('--ignore-certificate-errors')
+        opts.add_argument('--allow-insecure-localhost')
+        opts.add_argument('--disable-web-security')
+        opts.add_argument('--no-sandbox')
+        opts.add_argument('--disable-dev-shm-usage')
 
         try:
-            service = FirefoxService(GeckoDriverManager().install())
-            self.driver = webdriver.Firefox(service=service, options=opts)
+            service = ChromeService(ChromeDriverManager().install())
+            self.driver = webdriver.Chrome(service=service, options=opts)
         except Exception as e:
-            print(f"[-] Could not find or install GeckoDriver. Error: {e}")
+            print(f"[-] Could not find or install ChromeDriver. Error: {e}")
+            print("[*] Make sure Google Chrome is installed on your system.")
             return
+
+        # Enable CDP Network domain for request body capture
+        try:
+            self.driver.execute_cdp_cmd('Network.enable', {})
+        except Exception:
+            pass
 
         print("[+] Live Browser launched! Please log in and browse the application naturally.")
         print(f"[*] Scope: *.{self.scope.root_host}" + (f" + {len(self.scope_extra)} extra host(s)" if self.scope_extra else ""))
@@ -698,103 +710,9 @@ class LiveBrowserInterceptor:
             print(f"[*] HAR export on stop: {self.har_out}")
         print("[*] VulcanX is actively intercepting and analyzing traffic in the background...")
 
-        def interceptor(request):
-            import urllib.request, ssl, re, zipfile, io, shutil, json, subprocess, os
 
-            if '/api/clear_traffic' in request.url and request.method == 'POST':
-                self.live_traffic.clear()
-                self.processed_requests.clear()
-                # Clear analyzer scanned URLs cache so future traffic is rescanned
-                self.analyzer.scanned_urls = set()
-                request.create_response(200, headers={'Content-Type': 'application/json'}, body=b'{"status":"ok"}')
-                return
 
-            if '/api/clear_findings' in request.url and request.method == 'POST':
-                self.live_findings.clear()
-                self.live_hypotheses.clear()
-                
-                # Re-initialize Correlator and Analyzer to clear memory of past findings
-                from core.correlate import CorrelationEngine
-                self.correlator = CorrelationEngine()
-                
-                # Reset analyzer deduplication cache
-                self.analyzer.findings = []
-                self.analyzer.scanned_urls = set()
 
-                request.create_response(200, headers={'Content-Type': 'application/json'}, body=b'{"status":"ok"}')
-                return
-
-            if '/api/vpn' in request.url and request.method == 'POST':
-                import json
-                try:
-                    body = request.body.decode('utf-8')
-                    data = json.loads(body)
-                    action = data.get('action')
-                except Exception:
-                    action = None
-                    
-                if action == 'enable_tor':
-                    try:
-                        # Update selenium wire dictionary (though this usually only works on init)
-                        self.driver.proxy = {
-                            'http': 'socks5://127.0.0.1:9050',
-                            'https': 'socks5://127.0.0.1:9050',
-                            'no_proxy': 'localhost,127.0.0.1'
-                        }
-                        
-                        # Dynamically force the underlying mitmproxy backend to use upstream proxy
-                        if hasattr(self.driver, 'backend') and hasattr(self.driver.backend, 'master'):
-                            self.driver.backend.master.options.update(
-                                mode='upstream:socks5://127.0.0.1:9050'
-                            )
-                        
-                        self.tor_enabled = True
-                        resp = json.dumps({'status': 'ok'}).encode('utf-8')
-                        request.create_response(200, headers={'Content-Type': 'application/json'}, body=resp)
-                    except Exception as e:
-                        resp = json.dumps({'status': 'error', 'error': str(e)}).encode('utf-8')
-                        request.create_response(500, headers={'Content-Type': 'application/json'}, body=resp)
-                    return
-                    
-                if action == 'disable_tor':
-                    try:
-                        self.driver.proxy = {}
-                        
-                        if hasattr(self.driver, 'backend') and hasattr(self.driver.backend, 'master'):
-                            self.driver.backend.master.options.update(
-                                mode='regular'
-                            )
-                        
-                        self.tor_enabled = False
-                        resp = json.dumps({'status': 'ok'}).encode('utf-8')
-                        request.create_response(200, headers={'Content-Type': 'application/json'}, body=resp)
-                    except Exception as e:
-                        resp = json.dumps({'status': 'error', 'error': str(e)}).encode('utf-8')
-                        request.create_response(500, headers={'Content-Type': 'application/json'}, body=resp)
-                    return
-                    
-                if action == 'check_ip':
-                    try:
-                        import urllib.request
-                        if self.tor_enabled:
-                            import subprocess
-                            cmd = ['curl', '--socks5-hostname', '127.0.0.1:9050', '-s', 'https://checkip.amazonaws.com']
-                            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                            ip = result.stdout.strip()
-                            if not ip:
-                                ip = "Failed to fetch IP via Tor. Make sure Tor is running on port 9050."
-                        else:
-                            ip = urllib.request.urlopen('https://checkip.amazonaws.com', timeout=10).read().decode('utf-8').strip()
-                            
-                        resp = json.dumps({'status': 'ok', 'ip': ip}).encode('utf-8')
-                        request.create_response(200, headers={'Content-Type': 'application/json'}, body=resp)
-                    except Exception as e:
-                        resp = json.dumps({'status': 'error', 'error': str(e)}).encode('utf-8')
-                        request.create_response(500, headers={'Content-Type': 'application/json'}, body=resp)
-                    return
-
-        if _SELENIUM_WIRE_AVAILABLE:
-            self.driver.request_interceptor = interceptor
         self.driver.get(start_url)
         self.last_seen_url = start_url
         if self.dom_sinks_enabled:
@@ -889,78 +807,24 @@ class LiveBrowserInterceptor:
     def _monitor_loop(self):
         while self.running:
             try:
-                if _SELENIUM_WIRE_AVAILABLE:
-                    reqs = self.driver.requests
-                else:
-                    reqs = []
+                # ── CDP-based network interception (works on all Python versions) ──
+                try:
+                    logs = self.driver.get_log('performance')
+                    for entry in logs:
+                        try:
+                            msg = json.loads(entry['message'])['message']
+                            method = msg.get('method', '')
+                            params = msg.get('params', {})
+                            if method == 'Network.requestWillBeSent':
+                                self._handle_cdp_request(params)
+                            elif method == 'Network.responseReceived':
+                                self._handle_cdp_response(params)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
-                for request in reqs:
-                    url = request.url
-
-                    if self.har is not None and request.response:
-                        req_key = (request.method, url, id(request))
-                        if req_key not in self.processed_request_bodies:
-                            self.har.add(request)
-
-                    if not self.scope.in_scope(url):
-                        continue
-
-                    # --- Request-side analysis (runs once per request, regardless of response) ---
-                    req_sig = (request.method, url, hashlib.sha1((request.body or b'')).hexdigest())
-                    if req_sig not in self.processed_request_bodies:
-                        self.processed_request_bodies.add(req_sig)
-                        self._analyze_request(request)
-
-                    if not request.response:
-                        continue
-
-                    if url in self.processed_requests:
-                        continue
-
-                    # Filter out images, fonts, css
-                    if any(ext in url.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.woff', '.woff2', '.ttf', '.css', '.svg', '.ico']):
-                        self.processed_requests.add(url)
-                        continue
-
-                    # Add to live traffic log if in scope
-                    if self.scope.in_scope(url):
-                        req_id = id(request)
-                        if not any(t.get('id') == req_id for t in getattr(self, 'live_traffic', [])):
-                            try:
-                                status_code = request.response.status_code if request.response else 0
-                            except Exception:
-                                status_code = 0
-                            
-                            display_url = url
-                            if len(display_url) > 150:
-                                display_url = display_url[:150] + "..."
-
-                            # Try to get raw body if it exists
-                            req_body_text = ''
-                            if request.body:
-                                try:
-                                    req_body_text = request.body.decode('utf-8', errors='ignore')
-                                except Exception:
-                                    req_body_text = '<binary/un-decodable data>'
-
-                            self.live_traffic.append({
-                                'id': req_id,
-                                'method': request.method,
-                                'url': url,  # store full url for repeater
-                                'display_url': display_url,
-                                'status_code': status_code,
-                                'time': datetime.datetime.now().strftime('%H:%M:%S'),
-                                'req_headers': dict(request.headers),
-                                'req_body': req_body_text
-                            })
-                            if len(self.live_traffic) > 100:
-                                self.live_traffic.pop(0)
-
-                    self.processed_requests.add(url)
-                    self._analyze_response(request)
-
-                # Unconditionally inject/update the UI every second to ensure it survives page loads
-                # and dynamically updates as the user navigates
+                # ── Tab management + UI injection ──────────────────────────────────
                 try:
                     try:
                         current = self.driver.current_window_handle
@@ -972,23 +836,18 @@ class LiveBrowserInterceptor:
                         self.known_handles = set(handles)
 
                     new_handles = set(handles) - self.known_handles
-                    
                     if new_handles:
-                        # User opened a new tab, switch Selenium's context to it
                         current = list(new_handles)[-1]
                         self.driver.switch_to.window(current)
                         self.known_handles = set(handles)
-                    elif current not in handles and handles:
-                        # Active window was closed, fallback to last available
+                    elif current and current not in handles and handles:
                         current = handles[-1]
                         self.driver.switch_to.window(current)
                         self.known_handles = set(handles)
                     elif set(handles) != self.known_handles:
-                        # A tab was closed, just update the known set
                         self.known_handles = set(handles)
 
-
-                    # Re-inject hooks if the page navigated
+                    # Re-inject DOM hooks on navigation
                     if self.dom_sinks_enabled:
                         try:
                             cur = self.driver.current_url
@@ -1004,13 +863,154 @@ class LiveBrowserInterceptor:
                 except Exception:
                     pass
 
-                time.sleep(1)  # Prevent CPU thrashing
+                time.sleep(1)
             except Exception as e:
-                # Browser might be closed by user
                 if "connection refused" in str(e).lower() or "disconnected" in str(e).lower() or "not reachable" in str(e).lower():
                     print("\n[*] Browser closed. Stopping interception.")
                     break
                 time.sleep(1)
+
+    def _handle_cdp_request(self, params):
+        """Processes a CDP Network.requestWillBeSent event."""
+        req_id = params.get('requestId')
+        request = params.get('request', {})
+        url = request.get('url', '')
+        method = request.get('method', 'GET')
+        headers = request.get('headers', {})
+        body = request.get('postData', '') or ''
+
+        if not url or url.startswith('data:') or not self.scope.in_scope(url):
+            return
+
+        self._cdp_pending[req_id] = {'url': url, 'method': method, 'headers': headers, 'body': body}
+
+        # Request-side analysis (secrets in body, JWT, etc.)
+        req_sig = (method, url, hashlib.sha1(body.encode('utf-8', errors='ignore')).hexdigest())
+        if req_sig not in self.processed_request_bodies:
+            self.processed_request_bodies.add(req_sig)
+            try:
+                findings = self.analyzer.scan_request(url, method=method, headers=headers, body=body or None)
+                if body:
+                    findings += self.analyzer.scan({f"{url} [REQUEST BODY]": body}, set())
+                for f in findings:
+                    f.setdefault('method', method)
+                    self._inject_ui_alert(f)
+            except Exception:
+                pass
+
+    def _handle_cdp_response(self, params):
+        """Processes a CDP Network.responseReceived event."""
+        req_id = params.get('requestId')
+        response = params.get('response', {})
+        url = response.get('url', '')
+        status = response.get('status', 0)
+        headers = response.get('headers', {})
+
+        if not url or url.startswith('data:') or not self.scope.in_scope(url):
+            return
+
+        if url in self.processed_requests:
+            return
+        self.processed_requests.add(url)
+
+        req_info = self._cdp_pending.get(req_id, {})
+        display_url = url[:150] + '...' if len(url) > 150 else url
+
+        self.live_traffic.append({
+            'id': req_id,
+            'method': req_info.get('method', 'GET'),
+            'url': url,
+            'display_url': display_url,
+            'status_code': status,
+            'time': datetime.datetime.now().strftime('%H:%M:%S'),
+            'req_headers': req_info.get('headers', {}),
+            'req_body': req_info.get('body', '')
+        })
+        if len(self.live_traffic) > 200:
+            self.live_traffic.pop(0)
+
+        # Response-side analysis: security headers, body scanning
+        self._analyze_cdp_response(url, status, headers, req_id)
+
+    def _analyze_cdp_response(self, url, status_code, headers, req_id=None):
+        """Runs security checks on CDP response headers and optionally the response body."""
+        headers_lower = {k.lower(): v for k, v in headers.items()}
+        ctype = headers_lower.get('content-type', '').lower()
+
+        # ── Security header checks ─────────────────────────────────────────────
+        if 'text/html' in ctype:
+            missing = []
+            if 'content-security-policy' not in headers_lower:
+                missing.append('Content-Security-Policy (CSP)')
+            if 'strict-transport-security' not in headers_lower and url.startswith('https'):
+                missing.append('Strict-Transport-Security (HSTS)')
+            if 'x-frame-options' not in headers_lower:
+                missing.append('X-Frame-Options (XFO)')
+            if 'x-content-type-options' not in headers_lower:
+                missing.append('X-Content-Type-Options')
+            if 'permissions-policy' not in headers_lower:
+                missing.append('Permissions-Policy')
+            if 'referrer-policy' not in headers_lower:
+                missing.append('Referrer-Policy')
+
+            for m_header in missing:
+                key = m_header.split(' ')[0].upper().replace('-', '_')
+                self._inject_ui_alert({
+                    'url': url, 'type': f'MISSING_{key}',
+                    'severity': 'MEDIUM', 'confidence': '100',
+                    'description': f'Missing security header: {m_header}',
+                    'remediation': f'Add the {m_header} header to all HTML responses.',
+                    'match': f'Missing: {m_header}',
+                    'context': f'HTTP response from {url}',
+                    'line': 0, 'source': 'RESPONSE_HEADERS'
+                })
+
+        # ── CORS misconfig ─────────────────────────────────────────────────────
+        acao = headers_lower.get('access-control-allow-origin', '')
+        if acao == '*':
+            self._inject_ui_alert({
+                'url': url, 'type': 'CORS_WILDCARD',
+                'severity': 'MEDIUM', 'confidence': '100',
+                'description': 'CORS policy allows all origins (Access-Control-Allow-Origin: *)',
+                'remediation': 'Restrict CORS to trusted origins only.',
+                'match': 'ACAO: *', 'context': url, 'line': 0, 'source': 'RESPONSE_HEADERS'
+            })
+        elif acao == 'null':
+            self._inject_ui_alert({
+                'url': url, 'type': 'CORS_NULL_ORIGIN',
+                'severity': 'HIGH', 'confidence': '90',
+                'description': 'CORS allows null origin – exploitable via data: URI sandboxed iframe.',
+                'remediation': 'Never whitelist the null origin.',
+                'match': 'ACAO: null', 'context': url, 'line': 0, 'source': 'RESPONSE_HEADERS'
+            })
+
+        # ── Cookie checks ──────────────────────────────────────────────────────
+        set_cookie = headers_lower.get('set-cookie', '')
+        if set_cookie:
+            if 'httponly' not in set_cookie.lower():
+                self._inject_ui_alert({
+                    'url': url, 'type': 'INSECURE_COOKIE_HTTPONLY',
+                    'severity': 'MEDIUM', 'confidence': '95',
+                    'description': 'Cookie set without HttpOnly flag.',
+                    'remediation': 'Add the HttpOnly flag to all sensitive cookies.',
+                    'match': set_cookie[:100], 'context': url, 'line': 0, 'source': 'RESPONSE_HEADERS'
+                })
+            if url.startswith('https') and 'secure' not in set_cookie.lower():
+                self._inject_ui_alert({
+                    'url': url, 'type': 'INSECURE_COOKIE_SECURE',
+                    'severity': 'MEDIUM', 'confidence': '95',
+                    'description': 'Cookie set without Secure flag over HTTPS.',
+                    'remediation': 'Add the Secure flag to all cookies.',
+                    'match': set_cookie[:100], 'context': url, 'line': 0, 'source': 'RESPONSE_HEADERS'
+                })
+
+        # ── Response body analysis (HTML/JS/JSON) ──────────────────────────────
+        if req_id and ('text/html' in ctype or 'javascript' in ctype or 'json' in ctype):
+            threading.Thread(
+                target=self._fetch_and_scan_body,
+                args=(url, req_id),
+                daemon=True
+            ).start()
 
     def _check_tls_vulnerabilities(self, url):
         import urllib.parse
@@ -1092,6 +1092,19 @@ class LiveBrowserInterceptor:
                     pass
                     
             threading.Thread(target=do_tls_check, daemon=True).start()
+        except Exception:
+            pass
+
+    def _fetch_and_scan_body(self, url, req_id):
+        """Fetch response body via CDP and run static analysis on it."""
+        try:
+            result = self.driver.execute_cdp_cmd('Network.getResponseBody', {'requestId': req_id})
+            body = result.get('body', '')
+            if body and len(body) > 10:
+                findings = self.analyzer.scan({url: body}, set())
+                for f in findings:
+                    f.setdefault('source', 'LIVE_RESPONSE')
+                    self._inject_ui_alert(f)
         except Exception:
             pass
 
@@ -1537,6 +1550,8 @@ class LiveBrowserInterceptor:
         """
 
         try:
+            # Inject API port so the widget JS can reach the local API server
+            self.driver.execute_script(f"window.__vulcanx_api_port = {self._api_port or 0};")
             self.driver.execute_script(WIDGET_INIT_JS)
             self.driver.execute_script(js_inject_state)
         except Exception as e:
@@ -1547,6 +1562,11 @@ class LiveBrowserInterceptor:
 
     def stop(self):
         self.running = False
+        if self._api_server:
+            try:
+                self._api_server.stop()
+            except Exception:
+                pass
         if self.har_out and self.har is not None:
             try:
                 self.har.save(self.har_out)

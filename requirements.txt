@@ -2,6 +2,4 @@ requests
 beautifulsoup4
 colorama
 selenium
-selenium-wire
 webdriver-manager
-blinker<1.8

@@ -1,0 +1,299 @@
+--- repo/VULCANX-main/core/live_browser.py	2026-06-23 10:56:55.000000000 +0000
++++ vulcanx_engine_v2/VULCANX-main/core/live_browser.py	2026-06-29 06:54:02.047366567 +0000
+@@ -4,6 +4,7 @@
+ from seleniumwire import webdriver
+ from selenium.webdriver.chrome.options import Options
+ from selenium.webdriver.chrome.service import Service
++from core.correlate import CorrelationEngine
+ 
+ class LiveBrowserInterceptor:
+     def __init__(self, analyzer):
+@@ -13,6 +14,12 @@
+         self.processed_requests = set()
+         self.live_findings = []
+         self.current_url = ""
++        # Correlation engine: chains raw findings (added below, one call per
++        # finding) into ranked vulnerability hypotheses. Kept separate from
++        # live_findings so the HUD can render "raw findings" and "suggested
++        # vuln chains" as two distinct lists/tabs instead of mixing them.
++        self.correlator = CorrelationEngine()
++        self.live_hypotheses = []  # list of dicts (VulnHypothesis.to_finding_dict()), newest-relevant first
+         
+     def start(self, start_url):
+         print("[*] Launching Live Browser Mode (using Firefox)...")
+@@ -66,9 +73,9 @@
+                     # Check Security Headers Dynamically
+                     headers = dict(request.response.headers)
+                     ctype = headers.get('Content-Type', headers.get('content-type', '')).lower()
+-                    
++                    headers_lower = {k.lower(): v for k, v in headers.items()}
++
+                     if 'text/html' in ctype:
+-                        headers_lower = {k.lower(): v for k, v in headers.items()}
+                         missing = []
+                         if 'content-security-policy' not in headers_lower:
+                             missing.append("Content-Security-Policy (CSP)")
+@@ -87,6 +94,53 @@
+                                 'match': f'Missing: {m_header}'
+                             }
+                             self._inject_ui_alert(f_header)
++
++                    # CORS wildcard / reflected-origin check. Not restricted to
++                    # text/html since this matters most on JSON API responses.
++                    # NOTE: a wildcard origin is only dangerous when paired with
++                    # credentialed requests (cookies/Authorization) — the
++                    # correlation engine (R-CORS-COOKIE-CHAIN) is what actually
++                    # decides exploitability; this check just records the fact.
++                    acao = headers_lower.get('access-control-allow-origin')
++                    acac = headers_lower.get('access-control-allow-credentials', '').lower() == 'true'
++                    if acao and (acao == '*' or acao not in ('', None)):
++                        is_wildcard_or_reflected = (acao == '*') or (acao.rstrip('/') != self._origin_of(url))
++                        if is_wildcard_or_reflected:
++                            f_cors = {
++                                'url': url,
++                                'type': 'CORS_WILDCARD_ORIGIN',
++                                'severity': 'MEDIUM' if not acac else 'HIGH',
++                                'match': f'Access-Control-Allow-Origin: {acao}' + (' (with credentials)' if acac else ''),
++                                'context': f'ACAO={acao}, ACAC={acac}',
++                                'source': 'NETWORK',
++                            }
++                            self._inject_ui_alert(f_cors)
++
++                    # Insecure cookie flag check. selenium-wire collapses
++                    # multiple Set-Cookie headers when read via dict(headers);
++                    # use get_all() when available to not silently drop cookies
++                    # past the first one on responses that set several at once.
++                    set_cookie_values = self._get_all_set_cookie(request.response.headers)
++                    for raw_cookie in set_cookie_values:
++                        cookie_name = raw_cookie.split('=', 1)[0].strip()
++                        lc = raw_cookie.lower()
++                        missing_flags = []
++                        if 'httponly' not in lc:
++                            missing_flags.append('HttpOnly')
++                        if 'secure' not in lc and url.startswith('https'):
++                            missing_flags.append('Secure')
++                        if 'samesite' not in lc:
++                            missing_flags.append('SameSite')
++                        if missing_flags:
++                            f_cookie = {
++                                'url': url,
++                                'type': 'INSECURE_COOKIE',
++                                'severity': 'HIGH' if 'SameSite' in missing_flags else 'MEDIUM',
++                                'match': f"{cookie_name}: missing {', '.join(missing_flags)}",
++                                'context': raw_cookie[:120],
++                                'source': 'NETWORK',
++                            }
++                            self._inject_ui_alert(f_cookie)
+                     
+                     # Try to get response body via selenium-wire
+                     try:
+@@ -135,6 +189,18 @@
+     def _inject_ui_alert(self, finding=None):
+         if finding and finding not in self.live_findings:
+             self.live_findings.append(finding)
++
++            # Feed the correlation engine. This is the single choke point
++            # every finding passes through before reaching the HUD, so it's
++            # the right place to also surface chained hypotheses without
++            # touching the dozen call sites above that produce findings.
++            try:
++                new_hyps = self.correlator.ingest(finding)
++                for h in new_hyps:
++                    self.live_hypotheses.append(h.to_finding_dict())
++            except Exception as e:
++                # A correlation bug must never break the live HUD/monitor loop.
++                print(f"[correlate] suppressed error: {e}")
+             
+         # Group findings by type
+         grouped_findings = {}
+@@ -203,9 +269,49 @@
+                 </div>
+             </details>
+             """
+-            
++
++        # --- Correlation engine output: rendered as its own section, visually
++        # distinct (purple accent) from raw pattern-match findings above, since
++        # these are inferred chains, not direct scanner hits. Sorted by
++        # severity so the highest-confidence chain is always visible without
++        # scrolling, even as live_findings grows during a long session.
++        sev_rank = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFO': 4}
++        sorted_hyps = sorted(self.live_hypotheses, key=lambda h: sev_rank.get(h.get('severity', 'INFO'), 9))
++
++        suggestions_html = ""
++        if sorted_hyps:
++            for h in sorted_hyps:
++                severity = h['severity'].replace("'", "\\'")
++                sev_color = "red"
++                if severity == "MEDIUM": sev_color = "#ff9900"
++                elif severity == "LOW": sev_color = "#ffff00"
++                elif severity == "HIGH": sev_color = "#ff3333"
++
++                title = h.get('description', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
++                cwe = h.get('context', '').replace("'", "\\'")
++                conf = h.get('confidence', 'N/A')
++                url_s = h.get('url', '').replace("'", "\\'").replace("`", "\\`")
++                if len(url_s) > 70: url_s = url_s[:70] + "..."
++                remediation = h.get('remediation', '').replace("'", "\\'").replace("`", "\\`").replace("$", "\\$")
++
++                suggestions_html += f"""
++                <details style="margin-bottom:8px; padding-bottom:8px; border-bottom:1px dotted #553366;">
++                    <summary style="cursor:pointer; outline:none; font-weight:bold;">
++                        <strong style="color:{sev_color};">[{severity}]</strong>
++                        <span style="color:#e0b3ff;">{title}</span>
++                        <span style="color:#888;font-size:10px;">({cwe}, conf {conf})</span>
++                    </summary>
++                    <div style="margin-top:8px; padding-left:15px; border-left:2px solid #663377;">
++                        <strong style="color:#aaa;">URL:</strong> <span style="color:#4da6ff;word-break:break-all;">{url_s}</span><br>
++                        <strong style="color:#aaa;">Next steps:</strong><br>
++                        <span style="color:#ccc;font-size:11px;">{remediation}</span>
++                    </div>
++                </details>
++                """
++
+         import base64
+         list_html_b64 = base64.b64encode(list_html.encode('utf-8')).decode('utf-8')
++        suggestions_html_b64 = base64.b64encode(suggestions_html.encode('utf-8')).decode('utf-8')
+             
+         js_code = f"""
+         try {{
+@@ -330,6 +436,54 @@
+                 btnGroup.appendChild(minBtn);
+                 header.appendChild(btnGroup);
+                 w.appendChild(header);
++
++                // Tab bar: Findings (raw scanner hits) vs Suggestions (correlated
++                // vuln-chain hypotheses from core/correlate.py). Two separate lists
++                // kept in the DOM at all times; tab click just toggles display so
++                // re-render logic below doesn't need to know which tab is active.
++                var tabBar = document.createElement('div');
++                tabBar.style.display = 'flex';
++                tabBar.style.borderBottom = '1px solid #333';
++                tabBar.style.backgroundColor = '#141414';
++
++                var tabFindings = document.createElement('div');
++                tabFindings.innerText = 'FINDINGS';
++                tabFindings.id = 'vulcanx-tab-findings';
++                tabFindings.style.padding = '6px 12px';
++                tabFindings.style.cursor = 'pointer';
++                tabFindings.style.color = '#ff5555';
++                tabFindings.style.borderBottom = '2px solid #ff0000';
++                tabFindings.style.fontWeight = 'bold';
++
++                var tabSuggest = document.createElement('div');
++                tabSuggest.innerText = 'SUGGESTIONS';
++                tabSuggest.id = 'vulcanx-tab-suggest';
++                tabSuggest.style.padding = '6px 12px';
++                tabSuggest.style.cursor = 'pointer';
++                tabSuggest.style.color = '#888';
++                tabSuggest.style.borderBottom = '2px solid transparent';
++
++                function activateTab(which) {{
++                    var f = document.getElementById('vulcanx-list');
++                    var s = document.getElementById('vulcanx-suggest-list');
++                    var tf = document.getElementById('vulcanx-tab-findings');
++                    var ts = document.getElementById('vulcanx-tab-suggest');
++                    if (which === 'findings') {{
++                        f.style.display = 'block'; s.style.display = 'none';
++                        tf.style.color = '#ff5555'; tf.style.borderBottom = '2px solid #ff0000';
++                        ts.style.color = '#888'; ts.style.borderBottom = '2px solid transparent';
++                    }} else {{
++                        f.style.display = 'none'; s.style.display = 'block';
++                        ts.style.color = '#e0b3ff'; ts.style.borderBottom = '2px solid #aa55ff';
++                        tf.style.color = '#888'; tf.style.borderBottom = '2px solid transparent';
++                    }}
++                }}
++                tabFindings.onclick = function() {{ activateTab('findings'); }};
++                tabSuggest.onclick = function() {{ activateTab('suggest'); }};
++
++                tabBar.appendChild(tabFindings);
++                tabBar.appendChild(tabSuggest);
++                w.appendChild(tabBar);
+                 
+                 var list = document.createElement('div');
+                 list.id = 'vulcanx-list';
+@@ -337,6 +491,14 @@
+                 list.style.overflowY = 'auto';
+                 list.style.padding = '10px';
+                 w.appendChild(list);
++
++                var suggestList = document.createElement('div');
++                suggestList.id = 'vulcanx-suggest-list';
++                suggestList.style.flex = '1';
++                suggestList.style.overflowY = 'auto';
++                suggestList.style.padding = '10px';
++                suggestList.style.display = 'none';
++                w.appendChild(suggestList);
+                 
+                 if (document.body) {{
+                     document.body.appendChild(w);
+@@ -345,7 +507,7 @@
+                 }}
+             }}
+             
+-            // Re-render the entire list from the python state safely using base64
++            // Re-render each list independently from python state, base64-safe.
+             var listEl = document.getElementById('vulcanx-list');
+             if (listEl) {{
+                 var newB64 = '{list_html_b64}';
+@@ -354,6 +516,23 @@
+                     listEl.setAttribute('data-b64', newB64);
+                 }}
+             }}
++
++            var suggestEl = document.getElementById('vulcanx-suggest-list');
++            if (suggestEl) {{
++                var newSuggestB64 = '{suggestions_html_b64}';
++                if (suggestEl.getAttribute('data-b64') !== newSuggestB64) {{
++                    suggestEl.innerHTML = newSuggestB64 ? decodeURIComponent(escape(window.atob(newSuggestB64))) : '<div style="color:#666;padding:10px;">No correlated suggestions yet.</div>';
++                    suggestEl.setAttribute('data-b64', newSuggestB64);
++                }}
++            }}
++
++            // Badge the Suggestions tab with a count so it's visible even
++            // while the Findings tab is active (matches how a real HUD
++            // signals "something needs your attention over here").
++            var tabSuggestBadge = document.getElementById('vulcanx-tab-suggest');
++            if (tabSuggestBadge) {{
++                tabSuggestBadge.innerText = 'SUGGESTIONS ({len(sorted_hyps)})';
++            }}
+             
+         }} catch(e) {{}}
+         """
+@@ -369,3 +548,36 @@
+                 self.driver.quit()
+             except:
+                 pass
++
++    @staticmethod
++    def _origin_of(url):
++        """scheme://host[:port] of a URL, for comparing against Access-Control-Allow-Origin."""
++        import urllib.parse
++        p = urllib.parse.urlparse(url)
++        return f"{p.scheme}://{p.netloc}"
++
++    @staticmethod
++    def _get_all_set_cookie(headers):
++        """
++        dict(headers) in the existing code collapses repeated Set-Cookie
++        headers into one (last-value-wins or comma-joined depending on the
++        underlying multidict implementation). Pull all Set-Cookie values
++        explicitly so a response setting 3 cookies doesn't only get checked
++        on 1 of them.
++        """
++        try:
++            if hasattr(headers, 'get_all'):
++                return list(headers.get_all('Set-Cookie') or [])
++        except Exception:
++            pass
++        val = headers.get('Set-Cookie') or headers.get('set-cookie')
++        if not val:
++            return []
++        # Fallback: some implementations comma-join multiple Set-Cookie
++        # values. This is lossy (a cookie value itself can contain commas
++        # for e.g. Expires=...GMT), so only split on the comma-then-space
++        # pattern that precedes a new cookie-name=value pair, not blindly
++        # on every comma.
++        import re
++        parts = re.split(r',(?=\s*[\w!#$%&\'*+\-.^_`|~]+=)', val)
++        return [p.strip() for p in parts if p.strip()]
