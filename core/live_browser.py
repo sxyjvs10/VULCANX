@@ -134,7 +134,6 @@ DOM_SINK_HOOK_JS = r"""
 
 WIDGET_INIT_JS_PART_1 = r"""
 (function() {
-    try {
         var w = document.getElementById('vulcanx-widget');
         if (!w) {
             // Create CSS Stylesheet dynamically
@@ -502,7 +501,6 @@ WIDGET_INIT_JS_PART_2 = r"""
                 }
             });
         };
-    } catch(e) {}
 })();
 """
 
