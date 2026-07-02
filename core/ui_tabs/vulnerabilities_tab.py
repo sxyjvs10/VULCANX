@@ -123,7 +123,7 @@ VULNERABILITIES_TAB_JS = r"""
                         var exploitSteps = "Manual exploitation steps not explicitly defined for this vulnerability class. Review documentation for standard attack vectors.";
                         var t = type.toUpperCase();
                         if (t.includes('XSS') || t.includes('DOM_XSS')) {
-                            exploitSteps = "1. Identify the exact reflection point in the DOM or Response.\\n2. Inject a benign HTML payload (e.g., `<u>test</u>`).\\n3. Verify if the payload is rendered without HTML encoding.\\n4. Inject an active execution payload (e.g., `<script>alert(document.domain)</script>`).\\n5. If blocked, attempt standard WAF bypasses (e.g., `<img src=x onerror=alert(1)>`).";
+                            exploitSteps = "1. Identify the exact reflection point in the DOM or Response.\\n2. Inject a benign HTML payload (e.g., `&lt;u&gt;test&lt;/u&gt;`).\\n3. Verify if the payload is rendered without HTML encoding.\\n4. Inject an active execution payload (e.g., `&lt;script&gt;alert(document.domain)&lt;/script&gt;`).\\n5. If blocked, attempt standard WAF bypasses (e.g., `&lt;img src=x onerror=alert(1)&gt;`).";
                         } else if (t.includes('SQL') || t.includes('INJECTION')) {
                             exploitSteps = "1. Identify the susceptible input parameter.\\n2. Inject standard syntax breakers (e.g., `'`, `\"`, `;`).\\n3. Monitor the response for raw database errors.\\n4. Proceed with Boolean logic testing (e.g., `' OR 1=1--`).\\n5. Attempt Time-Based inference (e.g., `WAITFOR DELAY '0:0:5'`).";
                         } else if (t.includes('CORS')) {
