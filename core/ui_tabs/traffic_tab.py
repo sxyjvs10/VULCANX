@@ -16,7 +16,9 @@ container.innerHTML = '';
                 clearBtn.style.borderRadius = '3px';
                 clearBtn.style.cursor = 'pointer';
                 clearBtn.onclick = function() {
-                    window.__vulcanx_invoke_command('clear_traffic', {});
+                    window.__vulcanx_cmd = {action: 'clear_traffic'};
+                    window.__vulcanx_state.traffic = [];
+                    window.__vulcanx_render();
                 };
                 topRow.appendChild(clearBtn);
                 container.appendChild(topRow);
