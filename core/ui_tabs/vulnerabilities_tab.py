@@ -8,6 +8,7 @@ VULNERABILITIES_TAB_JS = r"""
                 topRow.style.marginBottom = '10px';
                 
                 var clearBtn = document.createElement('button');
+                clearBtn.type = 'button';
                 clearBtn.innerText = '🗑️ Clear Findings';
                 clearBtn.style.background = '#aa0000';
                 clearBtn.style.color = '#fff';
@@ -16,7 +17,7 @@ VULNERABILITIES_TAB_JS = r"""
                 clearBtn.style.borderRadius = '3px';
                 clearBtn.style.cursor = 'pointer';
                 clearBtn.onclick = function() {
-                    window.__vulcanx_cmd = {action: 'clear_findings'};
+                    window.__vulcanx_cmd = '{"action": "clear_findings"}';
                     window.__vulcanx_state.findings = [];
                     window.__vulcanx_render();
                 };

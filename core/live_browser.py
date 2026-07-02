@@ -1055,8 +1055,14 @@ class LiveBrowserInterceptor:
                 return
             # Clear the command immediately so it's not re-processed
             self.driver.execute_script("window.__vulcanx_cmd = null;")
+            
+            if isinstance(cmd, str):
+                try:
+                    cmd = json.loads(cmd)
+                except Exception:
+                    pass
 
-            action = cmd.get('action', '')
+            action = cmd.get('action', '') if isinstance(cmd, dict) else ''
             result = {'status': 'ok'}
 
             # ── Spider ────────────────────────────────────────────────────────

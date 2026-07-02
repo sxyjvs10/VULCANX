@@ -8,6 +8,7 @@ container.innerHTML = '';
                 topRow.style.marginBottom = '10px';
                 
                 var clearBtn = document.createElement('button');
+                clearBtn.type = 'button';
                 clearBtn.innerText = '🗑️ Clear History';
                 clearBtn.style.background = '#aa0000';
                 clearBtn.style.color = '#fff';
@@ -16,7 +17,7 @@ container.innerHTML = '';
                 clearBtn.style.borderRadius = '3px';
                 clearBtn.style.cursor = 'pointer';
                 clearBtn.onclick = function() {
-                    window.__vulcanx_cmd = {action: 'clear_traffic'};
+                    window.__vulcanx_cmd = '{"action": "clear_traffic"}';
                     window.__vulcanx_state.traffic = [];
                     window.__vulcanx_render();
                 };
