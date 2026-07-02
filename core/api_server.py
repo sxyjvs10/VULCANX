@@ -297,8 +297,48 @@ class VulcanXAPIHandler(http.server.BaseHTTPRequestHandler):
 
         # ── /api/spider ─────────────────────────────────────────────────────
         elif path == '/api/spider':
-            target_url = data.get('url', '')
-            self._send_json({'status': 'ok', 'message': f'Spider queued for {target_url}'})
+            action = data.get('action', 'start')
+            if action == 'start':
+                url        = data.get('url') or (ix.current_url or ix.analyzer.target_url if hasattr(ix.analyzer,'target_url') else '')
+                max_depth  = int(data.get('max_depth', 4))
+                max_urls   = int(data.get('max_urls', 400))
+                delay      = float(data.get('delay', 0.4))
+                threads    = int(data.get('threads', 5))
+
+                if not url:
+                    self._send_json({'status': 'error', 'error': 'No URL provided and no current page URL available.'})
+                    return
+
+                # Stop any existing spider first
+                if ix.spider and ix.spider.stats.get('running'):
+                    ix.spider.stop()
+
+                from core.spider import WebSpider
+                ix.spider = WebSpider(
+                    interceptor=ix,
+                    start_url=url,
+                    max_depth=max_depth,
+                    max_urls=max_urls,
+                    delay=delay,
+                    threads=threads,
+                )
+                ix.spider.start()
+                self._send_json({'status': 'ok', 'message': f'Spider started from {url}', 'stats': ix.spider.stats})
+
+            elif action == 'stop':
+                if ix.spider:
+                    ix.spider.stop()
+                    self._send_json({'status': 'ok', 'message': 'Spider stopped.'})
+                else:
+                    self._send_json({'status': 'ok', 'message': 'No spider running.'})
+
+            elif action == 'status':
+                if ix.spider:
+                    self._send_json({'status': 'ok', 'stats': ix.spider.stats})
+                else:
+                    self._send_json({'status': 'ok', 'stats': {'running': False, 'visited': 0, 'queued': 0, 'total_found': 0}})
+            else:
+                self._send_json({'status': 'error', 'error': f'Unknown spider action: {action}'})
 
         # ── /api/ai_assist ──────────────────────────────────────────────────
         elif path == '/api/ai_assist':

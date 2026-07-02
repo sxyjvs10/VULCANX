@@ -665,6 +665,8 @@ class LiveBrowserInterceptor:
         # Active link discovery
         self.discovered_links = set()   # all URLs found in DOM/crawl
         self.scanned_links   = set()    # URLs already fetched+analyzed
+        # Spider engine (created on demand)
+        self.spider = None
 
     def start(self, start_url):
         print("[*] Launching Live Browser Mode (using Chrome + CDP)...")
@@ -1066,7 +1068,7 @@ class LiveBrowserInterceptor:
                 document.querySelectorAll('script:not([src])').forEach(function(s) {
                     jsBlobs.push(s.textContent);
                 });
-                var pathRe = /['"](\/[a-zA-Z0-9_\-\/\.?=&%#@]+)['"]/g;
+                var pathRe = new RegExp('[\'"](\\/[a-zA-Z0-9_.~!*:@,;+?=$&%#\\-/]+)[\'"]', 'g');
                 jsBlobs.forEach(function(blob) {
                     var m;
                     while ((m = pathRe.exec(blob)) !== null) {
