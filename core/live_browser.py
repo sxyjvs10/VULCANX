@@ -698,13 +698,12 @@ class LiveBrowserInterceptor:
         opts.add_argument('--allow-insecure-localhost')
         opts.add_argument('--no-sandbox')
         opts.add_argument('--disable-dev-shm-usage')
-        # ── Disable Chrome's Private Network Access blocking ──────────────────
-        # Without these, fetch() from public pages to 127.0.0.1 is blocked by
-        # Chrome 96+ even when the server sends Access-Control-Allow-Private-Network.
-        opts.add_argument('--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights')
-        # Allow mixed content and cross-origin requests for the widget API calls
-        opts.add_argument('--disable-web-security')
-        opts.add_argument('--allow-running-insecure-content')
+        # Disable Chrome's Private Network Access blocking so the widget can
+        # call our local API server (127.0.0.1) from any page without CORS errors.
+        opts.add_argument(
+            '--disable-features=BlockInsecurePrivateNetworkRequests,'
+            'PrivateNetworkAccessSendPreflights'
+        )
 
         try:
             service = ChromeService(ChromeDriverManager().install())
@@ -885,6 +884,8 @@ class LiveBrowserInterceptor:
                     if self.dom_sinks_enabled:
                         self._drain_dom_sinks()
 
+                    # Process any command the widget has queued
+                    self._process_widget_command()
                     self._inject_ui_alert(None)
                 except Exception:
                     pass
@@ -1037,6 +1038,115 @@ class LiveBrowserInterceptor:
                 args=(url, req_id),
                 daemon=True
             ).start()
+
+    def _process_widget_command(self):
+        """
+        Reads window.__vulcanx_cmd from the browser page, executes the requested
+        action on the Python side, then clears the command and writes the result
+        back into window.__vulcanx_cmd_result.
+
+        This is the command bus that lets the widget trigger Python-side actions
+        (spider start/stop, clear findings, VPN toggle, etc.) without any
+        fetch() calls — avoiding all CORS/Private-Network-Access restrictions.
+        """
+        try:
+            cmd = self.driver.execute_script("return window.__vulcanx_cmd || null;")
+            if not cmd:
+                return
+            # Clear the command immediately so it's not re-processed
+            self.driver.execute_script("window.__vulcanx_cmd = null;")
+
+            action = cmd.get('action', '')
+            result = {'status': 'ok'}
+
+            # ── Spider ────────────────────────────────────────────────────────
+            if action == 'spider_start':
+                url       = cmd.get('url') or self.current_url or self.last_seen_url
+                max_depth = int(cmd.get('max_depth', 4))
+                max_urls  = int(cmd.get('max_urls', 400))
+                delay     = float(cmd.get('delay', 0.4))
+                threads   = int(cmd.get('threads', 5))
+                if self.spider and self.spider.stats.get('running'):
+                    self.spider.stop()
+                from core.spider import WebSpider
+                self.spider = WebSpider(
+                    interceptor=self,
+                    start_url=url,
+                    max_depth=max_depth,
+                    max_urls=max_urls,
+                    delay=delay,
+                    threads=threads,
+                )
+                self.spider.start()
+                result = {'status': 'ok', 'message': f'Spider started from {url}'}
+
+            elif action == 'spider_stop':
+                if self.spider:
+                    self.spider.stop()
+                result = {'status': 'ok', 'message': 'Spider stopped'}
+
+            # ── Clear findings ────────────────────────────────────────────────
+            elif action == 'clear_findings':
+                self.live_findings.clear()
+                self.live_hypotheses.clear()
+                from core.correlate import CorrelationEngine
+                self.correlator = CorrelationEngine()
+                self.analyzer.findings = []
+                self.analyzer.scanned_urls = set()
+                result = {'status': 'ok'}
+
+            # ── Clear traffic ─────────────────────────────────────────────────
+            elif action == 'clear_traffic':
+                self.live_traffic.clear()
+                self.processed_requests.clear()
+                self.discovered_links.clear()
+                self.scanned_links.clear()
+                self.analyzer.scanned_urls = set()
+                result = {'status': 'ok'}
+
+            # ── VPN / proxy ───────────────────────────────────────────────────
+            elif action == 'enable_tor':
+                if self._api_server:
+                    from core.api_server import VulcanXAPIHandler
+                    VulcanXAPIHandler.proxy_state = {
+                        'mode': 'tor', 'scheme': 'socks5',
+                        'host': '127.0.0.1', 'port': 9050
+                    }
+                self.tor_enabled = True
+                result = {'status': 'ok', 'message': 'Tor proxy enabled — Chrome will update in ~2s'}
+
+            elif action == 'disable_proxy':
+                if self._api_server:
+                    from core.api_server import VulcanXAPIHandler
+                    VulcanXAPIHandler.proxy_state = {'mode': 'direct'}
+                self.tor_enabled = False
+                result = {'status': 'ok', 'message': 'Proxy disabled — direct connection restored'}
+
+            elif action == 'enable_custom_proxy':
+                if self._api_server:
+                    from core.api_server import VulcanXAPIHandler
+                    VulcanXAPIHandler.proxy_state = {
+                        'mode': 'custom',
+                        'scheme': cmd.get('scheme', 'http'),
+                        'host':   cmd.get('host', '127.0.0.1'),
+                        'port':   int(cmd.get('port', 8080)),
+                    }
+                result = {'status': 'ok', 'message': f"Custom proxy set to {cmd.get('scheme')}://{cmd.get('host')}:{cmd.get('port')}"}
+
+            elif action == 'check_ip':
+                try:
+                    import urllib.request as _ur
+                    ip = _ur.urlopen('https://checkip.amazonaws.com', timeout=8).read().decode().strip()
+                    result = {'status': 'ok', 'ip': ip}
+                except Exception as e:
+                    result = {'status': 'error', 'error': str(e)}
+
+            # Write result back to the page
+            result_json = json.dumps(result)
+            self.driver.execute_script(f"window.__vulcanx_cmd_result = {result_json};")
+
+        except Exception:
+            pass
 
     def _discover_page_links(self):
         """
@@ -1699,13 +1809,22 @@ class LiveBrowserInterceptor:
         domsinks_json = json.dumps(getattr(self, 'live_dom_sinks', []))
         domsinks_b64 = base64.b64encode(domsinks_json.encode('utf-8')).decode('utf-8')
 
+        spider_stats = {}
+        if self.spider:
+            spider_stats = dict(self.spider.stats)
+            spider_stats.pop('current_urls', None)   # not serialisable, skip
+
+        spider_stats_json = json.dumps(spider_stats)
+        spider_stats_b64  = base64.b64encode(spider_stats_json.encode('utf-8')).decode('utf-8')
+
         js_inject_state = f"""
         (function() {{
             try {{
-                var findings = JSON.parse(window.atob('{findings_b64}'));
-                var traffic = JSON.parse(window.atob('{traffic_b64}'));
-                var domSinks = JSON.parse(window.atob('{domsinks_b64}'));
-                
+                var findings    = JSON.parse(window.atob('{findings_b64}'));
+                var traffic     = JSON.parse(window.atob('{traffic_b64}'));
+                var domSinks    = JSON.parse(window.atob('{domsinks_b64}'));
+                var spiderStats = JSON.parse(window.atob('{spider_stats_b64}'));
+
                 if (window.__vulcanx_state) {{
                     var old_f = JSON.stringify(window.__vulcanx_state.findings);
                     var old_t = JSON.stringify(window.__vulcanx_state.traffic);
@@ -1715,12 +1834,13 @@ class LiveBrowserInterceptor:
                     var new_t = JSON.stringify(traffic);
                     var new_d = JSON.stringify(domSinks);
                     var new_s = '{suggestions_html_b64}';
-                    
-                    window.__vulcanx_state.findings = findings;
-                    window.__vulcanx_state.traffic = traffic;
-                    window.__vulcanx_state.domSinks = domSinks;
+
+                    window.__vulcanx_state.findings     = findings;
+                    window.__vulcanx_state.traffic      = traffic;
+                    window.__vulcanx_state.domSinks     = domSinks;
                     window.__vulcanx_state.suggestions_html = new_s;
-                    
+                    window.__vulcanx_state.spider_stats = spiderStats;
+
                     if (window.__vulcanx_state.activeTab === 'vulnerabilities' && old_f !== new_f) {{
                         window.__vulcanx_render();
                     }} else if (window.__vulcanx_state.activeTab === 'traffic' && old_t !== new_t) {{

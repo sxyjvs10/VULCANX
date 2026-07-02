@@ -1,247 +1,135 @@
 VPN_TAB_JS = r"""
 container.innerHTML = '';
 
+                // Command bus helper — no fetch(), no CORS, no PNA issues
+                function sendCmd(cmd, onResult) {
+                    window.__vulcanx_cmd = cmd;
+                    window.__vulcanx_cmd_result = null;
+                    if (onResult) {
+                        var tries = 0;
+                        var t = setInterval(function() {
+                            tries++;
+                            var r = window.__vulcanx_cmd_result;
+                            if (r !== null && r !== undefined) {
+                                clearInterval(t);
+                                onResult(r);
+                            } else if (tries > 20) {   // 2s timeout
+                                clearInterval(t);
+                                onResult({status:'error', error:'Timeout — no response from Python backend.'});
+                            }
+                        }, 100);
+                    }
+                }
+
                 var title = document.createElement('h3');
                 title.innerText = 'Proxy / VPN Manager';
-                title.style.color = '#ffcc00';
-                title.style.borderBottom = '1px solid #333';
-                title.style.paddingBottom = '8px';
+                title.style.cssText = 'color:#ffcc00;border-bottom:1px solid #333;padding-bottom:8px;margin:0 0 12px;';
                 container.appendChild(title);
 
                 var info = document.createElement('div');
-                info.style.color = '#aaa';
-                info.style.marginBottom = '15px';
-                info.style.fontSize = '11px';
-                info.innerHTML = 'Route Chrome traffic through <strong>Tor</strong> or a <strong>custom proxy</strong> without restarting the browser. Powered by the VulcanX Proxy Extension.<br><br><span style="color:#ffcc00;">⚠ Tor requires Tor Browser (or Tor service) running on 127.0.0.1:9050.</span>';
+                info.style.cssText = 'color:#888;margin-bottom:14px;font-size:11px;line-height:1.5;';
+                info.innerHTML = 'Route Chrome traffic through <strong>Tor</strong> or a <strong>custom proxy</strong> mid-session.' +
+                    ' The VulcanX proxy extension updates Chrome within ~2s.<br>' +
+                    '<span style="color:#ffcc00;">⚠ Tor requires Tor Browser (or Tor service) running on 127.0.0.1:9050.</span>';
                 container.appendChild(info);
 
                 var resultDiv = document.createElement('div');
-                resultDiv.style.background = '#111';
-                resultDiv.style.border = '1px solid #333';
-                resultDiv.style.padding = '10px';
-                resultDiv.style.fontFamily = 'monospace';
-                resultDiv.style.whiteSpace = 'pre-wrap';
-                resultDiv.style.borderRadius = '4px';
-                resultDiv.style.marginTop = '10px';
-                resultDiv.style.fontSize = '11px';
-                resultDiv.style.color = '#00ffcc';
-                resultDiv.innerText = 'Proxy Status: Direct (no proxy)';
+                resultDiv.style.cssText = 'background:#0d0d15;border:1px solid #333;padding:10px;font-family:monospace;' +
+                    'white-space:pre-wrap;border-radius:4px;margin-bottom:12px;font-size:11px;color:#00ffcc;min-height:36px;';
+                resultDiv.innerText = '— Proxy Status: Direct (no proxy) —';
                 container.appendChild(resultDiv);
 
-                // ── Button Row 1: Tor ──────────────────────────────────────────
-                var row1 = document.createElement('div');
-                row1.style.display = 'flex';
-                row1.style.gap = '6px';
-                row1.style.marginTop = '12px';
-
-                function apiBase() {
-                    return 'http://127.0.0.1:' + (window.__vulcanx_api_port || 0);
+                function showResult(data) {
+                    if (data.status === 'ok') {
+                        resultDiv.style.color = '#00ffcc';
+                        resultDiv.innerText = '✅ ' + (data.message || data.ip || 'Done');
+                        if (data.ip) resultDiv.innerText = '🌐 Your IP: ' + data.ip + (data.mode ? '\nProxy Mode: ' + data.mode : '');
+                    } else {
+                        resultDiv.style.color = '#ff4444';
+                        resultDiv.innerText = '❌ ' + (data.error || 'Error');
+                    }
                 }
 
-                var torBtn = document.createElement('button');
-                torBtn.innerText = '🧅 Enable Tor (SOCKS5 :9050)';
-                torBtn.style.flex = '1';
-                torBtn.style.padding = '8px';
-                torBtn.style.background = '#4CAF50';
-                torBtn.style.color = '#fff';
-                torBtn.style.border = 'none';
-                torBtn.style.cursor = 'pointer';
-                torBtn.style.borderRadius = '4px';
-                torBtn.style.fontWeight = 'bold';
+                // ── Row 1: Tor + Disable + Check IP ─────────────────────────
+                var row1 = document.createElement('div');
+                row1.style.cssText = 'display:flex;gap:6px;margin-bottom:10px;';
+
+                function mkBtn(text, bg, border) {
+                    var b = document.createElement('button');
+                    b.innerText = text;
+                    b.style.cssText = 'flex:1;padding:8px;background:' + bg + ';color:#fff;border:' +
+                        (border ? '1px solid ' + border : 'none') + ';border-radius:4px;cursor:pointer;font-weight:bold;font-size:11px;';
+                    return b;
+                }
+
+                var torBtn = mkBtn('🧅 Enable Tor (SOCKS5 :9050)', '#2e7d32', '');
                 torBtn.onclick = function() {
                     resultDiv.style.color = '#ffcc00';
-                    resultDiv.innerText = 'Enabling Tor... Chrome will switch within ~2 seconds.';
-                    fetch(apiBase() + '/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'enable_tor'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.style.color = '#00ffcc';
-                            resultDiv.innerText = '✅ ' + data.message;
-                        } else {
-                            resultDiv.style.color = '#ff4444';
-                            resultDiv.innerText = '❌ Error: ' + data.error;
-                        }
-                    }).catch(e => {
-                        resultDiv.style.color = '#ff4444';
-                        resultDiv.innerText = '❌ Error: ' + e;
-                    });
+                    resultDiv.innerText = '⏳ Enabling Tor…';
+                    sendCmd({action: 'enable_tor'}, showResult);
                 };
 
-                var disableBtn = document.createElement('button');
-                disableBtn.innerText = '⛔ Disable Proxy';
-                disableBtn.style.flex = '1';
-                disableBtn.style.padding = '8px';
-                disableBtn.style.background = '#f44336';
-                disableBtn.style.color = '#fff';
-                disableBtn.style.border = 'none';
-                disableBtn.style.cursor = 'pointer';
-                disableBtn.style.borderRadius = '4px';
-                disableBtn.style.fontWeight = 'bold';
-                disableBtn.onclick = function() {
+                var disBtn = mkBtn('⛔ Disable Proxy', '#c62828', '');
+                disBtn.onclick = function() {
                     resultDiv.style.color = '#ffcc00';
-                    resultDiv.innerText = 'Disabling proxy...';
-                    fetch(apiBase() + '/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'disable_tor'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.style.color = '#00ffcc';
-                            resultDiv.innerText = '✅ ' + data.message;
-                        } else {
-                            resultDiv.style.color = '#ff4444';
-                            resultDiv.innerText = '❌ Error: ' + data.error;
-                        }
-                    }).catch(e => {
-                        resultDiv.style.color = '#ff4444';
-                        resultDiv.innerText = '❌ Error: ' + e;
-                    });
+                    resultDiv.innerText = '⏳ Disabling proxy…';
+                    sendCmd({action: 'disable_proxy'}, showResult);
                 };
 
-                var checkIpBtn = document.createElement('button');
-                checkIpBtn.innerText = '🌐 Check My IP';
-                checkIpBtn.style.flex = '1';
-                checkIpBtn.style.padding = '8px';
-                checkIpBtn.style.background = '#2196F3';
-                checkIpBtn.style.color = '#fff';
-                checkIpBtn.style.border = 'none';
-                checkIpBtn.style.cursor = 'pointer';
-                checkIpBtn.style.borderRadius = '4px';
-                checkIpBtn.style.fontWeight = 'bold';
-                checkIpBtn.onclick = function() {
+                var ipBtn = mkBtn('🌐 Check IP', '#1565c0', '');
+                ipBtn.onclick = function() {
                     resultDiv.style.color = '#ffcc00';
-                    resultDiv.innerText = 'Checking IP address...';
-                    fetch(apiBase() + '/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'check_ip'}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.style.color = '#00ffcc';
-                            resultDiv.innerText = `🌐 Current IP: ${data.ip}\nProxy Mode: ${data.mode || 'direct'}`;
-                        } else {
-                            resultDiv.style.color = '#ff4444';
-                            resultDiv.innerText = '❌ Error: ' + data.error;
-                        }
-                    }).catch(e => {
-                        resultDiv.style.color = '#ff4444';
-                        resultDiv.innerText = '❌ Error: ' + e;
-                    });
+                    resultDiv.innerText = '⏳ Fetching IP address…';
+                    sendCmd({action: 'check_ip'}, showResult);
                 };
 
-                row1.appendChild(torBtn);
-                row1.appendChild(disableBtn);
-                row1.appendChild(checkIpBtn);
+                row1.appendChild(torBtn); row1.appendChild(disBtn); row1.appendChild(ipBtn);
                 container.appendChild(row1);
 
-                // ── Custom Proxy Section ────────────────────────────────────────
-                var customSection = document.createElement('div');
-                customSection.style.marginTop = '16px';
-                customSection.style.border = '1px solid #333';
-                customSection.style.padding = '10px';
-                customSection.style.borderRadius = '4px';
-                customSection.style.background = '#0d0d15';
+                // ── Custom Proxy Section ─────────────────────────────────────
+                var customBox = document.createElement('div');
+                customBox.style.cssText = 'background:#0d0d15;border:1px solid #333;border-radius:4px;padding:10px;';
 
-                var customTitle = document.createElement('div');
-                customTitle.innerText = '🔧 Custom Proxy / Burp Suite Integration';
-                customTitle.style.color = '#ffcc00';
-                customTitle.style.fontWeight = 'bold';
-                customTitle.style.marginBottom = '8px';
-                customTitle.style.fontSize = '11px';
-                customSection.appendChild(customTitle);
+                var cTitle = document.createElement('div');
+                cTitle.style.cssText = 'color:#ffcc00;font-weight:bold;font-size:11px;margin-bottom:8px;';
+                cTitle.innerText = '🔧 Custom Proxy — Burp Suite / mitmproxy';
+                customBox.appendChild(cTitle);
 
-                var customInfo = document.createElement('div');
-                customInfo.innerHTML = 'Route Chrome through <strong>Burp Suite</strong>, <strong>mitmproxy</strong>, or any other proxy.<br>Default: <code>http://127.0.0.1:8080</code>';
-                customInfo.style.color = '#888';
-                customInfo.style.fontSize = '10px';
-                customInfo.style.marginBottom = '8px';
-                customSection.appendChild(customInfo);
+                var cInfo = document.createElement('div');
+                cInfo.style.cssText = 'color:#666;font-size:10px;margin-bottom:8px;';
+                cInfo.innerHTML = 'Route Chrome through any proxy. Default: <code>http://127.0.0.1:8080</code> (Burp Suite)';
+                customBox.appendChild(cInfo);
 
-                var fieldRow = document.createElement('div');
-                fieldRow.style.display = 'flex';
-                fieldRow.style.gap = '6px';
-                fieldRow.style.alignItems = 'center';
+                var cRow = document.createElement('div');
+                cRow.style.cssText = 'display:flex;gap:6px;align-items:center;';
 
-                var schemeSelect = document.createElement('select');
-                ['http', 'https', 'socks5', 'socks4'].forEach(function(s) {
-                    var opt = document.createElement('option');
-                    opt.value = s; opt.text = s;
-                    schemeSelect.appendChild(opt);
+                var schSel = document.createElement('select');
+                ['http','https','socks5','socks4'].forEach(function(s){
+                    var o=document.createElement('option'); o.value=s; o.text=s; schSel.appendChild(o);
                 });
-                schemeSelect.style.background = '#1a1a24';
-                schemeSelect.style.color = '#fff';
-                schemeSelect.style.border = '1px solid #444';
-                schemeSelect.style.padding = '5px';
-                schemeSelect.style.borderRadius = '3px';
+                schSel.style.cssText = 'background:#111;color:#fff;border:1px solid #444;padding:5px;border-radius:3px;';
 
-                var hostInput = document.createElement('input');
-                hostInput.type = 'text'; hostInput.value = '127.0.0.1';
-                hostInput.placeholder = 'Host';
-                hostInput.style.flex = '1';
-                hostInput.style.background = '#1a1a24';
-                hostInput.style.color = '#fff';
-                hostInput.style.border = '1px solid #444';
-                hostInput.style.padding = '5px';
-                hostInput.style.borderRadius = '3px';
+                var hostInp = document.createElement('input');
+                hostInp.type='text'; hostInp.value='127.0.0.1'; hostInp.placeholder='Host';
+                hostInp.style.cssText='flex:1;background:#111;color:#fff;border:1px solid #444;padding:5px;border-radius:3px;';
 
-                var portInput = document.createElement('input');
-                portInput.type = 'number'; portInput.value = '8080';
-                portInput.placeholder = 'Port';
-                portInput.style.width = '70px';
-                portInput.style.background = '#1a1a24';
-                portInput.style.color = '#fff';
-                portInput.style.border = '1px solid #444';
-                portInput.style.padding = '5px';
-                portInput.style.borderRadius = '3px';
+                var portInp = document.createElement('input');
+                portInp.type='number'; portInp.value='8080'; portInp.placeholder='Port';
+                portInp.style.cssText='width:70px;background:#111;color:#fff;border:1px solid #444;padding:5px;border-radius:3px;';
 
-                var applyCustomBtn = document.createElement('button');
-                applyCustomBtn.innerText = 'Apply';
-                applyCustomBtn.style.padding = '5px 12px';
-                applyCustomBtn.style.background = '#7c4dff';
-                applyCustomBtn.style.color = '#fff';
-                applyCustomBtn.style.border = 'none';
-                applyCustomBtn.style.cursor = 'pointer';
-                applyCustomBtn.style.borderRadius = '3px';
-                applyCustomBtn.style.fontWeight = 'bold';
-                applyCustomBtn.onclick = function() {
-                    var scheme = schemeSelect.value;
-                    var host = hostInput.value.trim();
-                    var port = parseInt(portInput.value);
-                    if (!host || !port) { resultDiv.innerText = 'Enter a valid host and port.'; return; }
-                    resultDiv.style.color = '#ffcc00';
-                    resultDiv.innerText = `Setting custom proxy to ${scheme}://${host}:${port}...`;
-                    fetch(apiBase() + '/api/vpn', {
-                        method: 'POST',
-                        body: JSON.stringify({action: 'enable_custom', scheme, host, port}),
-                        headers: {'Content-Type': 'application/json'}
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if(data.status === 'ok') {
-                            resultDiv.style.color = '#00ffcc';
-                            resultDiv.innerText = '✅ ' + data.message;
-                        } else {
-                            resultDiv.style.color = '#ff4444';
-                            resultDiv.innerText = '❌ ' + data.error;
-                        }
-                    }).catch(e => {
-                        resultDiv.style.color = '#ff4444';
-                        resultDiv.innerText = '❌ Error: ' + e;
-                    });
+                var applyBtn = document.createElement('button');
+                applyBtn.innerText = 'Apply';
+                applyBtn.style.cssText = 'padding:5px 12px;background:#6a1b9a;color:#fff;border:none;border-radius:3px;cursor:pointer;font-weight:bold;';
+                applyBtn.onclick = function() {
+                    var s=schSel.value, h=hostInp.value.trim(), p=parseInt(portInp.value);
+                    if(!h||!p){ resultDiv.innerText='Enter a valid host and port.'; return; }
+                    resultDiv.style.color='#ffcc00';
+                    resultDiv.innerText='⏳ Setting proxy to ' + s + '://' + h + ':' + p + '…';
+                    sendCmd({action:'enable_custom_proxy', scheme:s, host:h, port:p}, showResult);
                 };
 
-                fieldRow.appendChild(schemeSelect);
-                fieldRow.appendChild(hostInput);
-                fieldRow.appendChild(portInput);
-                fieldRow.appendChild(applyCustomBtn);
-                customSection.appendChild(fieldRow);
-                container.appendChild(customSection);
+                cRow.appendChild(schSel); cRow.appendChild(hostInp);
+                cRow.appendChild(portInp); cRow.appendChild(applyBtn);
+                customBox.appendChild(cRow);
+                container.appendChild(customBox);
 """
