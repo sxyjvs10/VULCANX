@@ -1997,6 +1997,13 @@ class LiveBrowserInterceptor:
         domsinks_json = json.dumps(getattr(self, 'live_dom_sinks', []))
         domsinks_b64 = base64.b64encode(domsinks_json.encode('utf-8')).decode('utf-8')
 
+        try:
+            backend_cookies = self.driver.get_cookies()
+        except Exception:
+            backend_cookies = []
+        cookies_json = json.dumps(backend_cookies)
+        cookies_b64 = base64.b64encode(cookies_json.encode('utf-8')).decode('utf-8')
+
         spider_stats = {}
         if self.spider:
             spider_stats = dict(self.spider.stats)
@@ -2012,6 +2019,7 @@ class LiveBrowserInterceptor:
                 var traffic     = JSON.parse(window.atob('{traffic_b64}'));
                 var domSinks    = JSON.parse(window.atob('{domsinks_b64}'));
                 var spiderStats = JSON.parse(window.atob('{spider_stats_b64}'));
+                var backendCookies = JSON.parse(window.atob('{cookies_b64}'));
 
                 if (window.__vulcanx_state) {{
                     var old_f = JSON.stringify(window.__vulcanx_state.findings);
@@ -2026,6 +2034,7 @@ class LiveBrowserInterceptor:
                     window.__vulcanx_state.findings     = findings;
                     window.__vulcanx_state.traffic      = traffic;
                     window.__vulcanx_state.domSinks     = domSinks;
+                    window.__vulcanx_state.backendCookies = backendCookies;
                     window.__vulcanx_state.suggestions_html = new_s;
                     window.__vulcanx_state.spider_stats = spiderStats;
 

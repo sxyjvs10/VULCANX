@@ -17,21 +17,32 @@ container.innerHTML = '';
 
                 var items = [];
                 
-                // Cookies
+                // Cookies (Frontend + Backend)
+                var cookieMap = {};
                 try {
                     if (document.cookie) {
                         document.cookie.split(';').forEach(c => {
                             var parts = c.split('=');
-                            items.push({
-                                source: 'Cookie',
-                                key: parts[0] ? parts[0].trim() : '',
-                                value: parts.slice(1).join('=')
-                            });
+                            var key = parts[0] ? parts[0].trim() : '';
+                            var val = parts.slice(1).join('=');
+                            if (key) {
+                                cookieMap[key] = { source: 'Cookie', key: key, value: val };
+                            }
                         });
                     }
                 } catch(e) {
-                    items.push({source: 'Cookie', key: 'Error', value: 'Access denied: ' + e.message});
+                    items.push({source: 'Cookie', key: 'Error', value: 'Frontend access denied: ' + e.message});
                 }
+                
+                // Merge HttpOnly cookies from backend
+                if (window.__vulcanx_state && window.__vulcanx_state.backendCookies) {
+                    window.__vulcanx_state.backendCookies.forEach(c => {
+                        var sourceLabel = c.httpOnly ? 'Cookie (HttpOnly)' : 'Cookie';
+                        cookieMap[c.name] = { source: sourceLabel, key: c.name, value: c.value };
+                    });
+                }
+                
+                Object.values(cookieMap).forEach(c => items.push(c));
                 
                 // LocalStorage
                 try {

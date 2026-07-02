@@ -1,0 +1,24 @@
+<html>
+<head><title>Test</title></head>
+<body>
+<script>
+    document.cookie = "test_cookie=hello; path=/";
+    var items = [];
+    try {
+        if (document.cookie) {
+            document.cookie.split(';').forEach(c => {
+                var parts = c.split('=');
+                items.push({
+                    source: 'Cookie',
+                    key: parts[0] ? parts[0].trim() : '',
+                    value: parts.slice(1).join('=')
+                });
+            });
+        }
+    } catch(e) {
+        items.push({source: 'Cookie', key: 'Error', value: 'Access denied: ' + e.message});
+    }
+    console.log(items);
+</script>
+</body>
+</html>

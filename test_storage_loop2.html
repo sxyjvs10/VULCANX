@@ -1,0 +1,41 @@
+<html>
+<body>
+<script>
+    var items = [];
+    localStorage.setItem("test", "data");
+    sessionStorage.setItem("test2", "data2");
+    
+    try {
+        if (window.localStorage) {
+            for (var i = 0; i < localStorage.length; i++) {
+                var k = localStorage.key(i);
+                items.push({
+                    source: 'Local',
+                    key: k,
+                    value: localStorage.getItem(k)
+                });
+            }
+        }
+    } catch(e) {
+        items.push({source: 'Local', key: 'Error', value: 'Access denied: ' + e.message});
+    }
+
+    try {
+        if (window.sessionStorage) {
+            for (var i = 0; i < sessionStorage.length; i++) {
+                var k = sessionStorage.key(i);
+                items.push({
+                    source: 'Session',
+                    key: k,
+                    value: sessionStorage.getItem(k)
+                });
+            }
+        }
+    } catch(e) {
+        items.push({source: 'Session', key: 'Error', value: 'Access denied: ' + e.message});
+    }
+    
+    console.log(items);
+</script>
+</body>
+</html>
