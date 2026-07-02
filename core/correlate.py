@@ -445,18 +445,18 @@ def _knownvuln_secret_hyp(kv: Fact, secrets: list) -> VulnHypothesis:
 @rule("R-CORS-COOKIE-CHAIN", weight=1.0)
 def rule_cors_cookie_chain(engine: CorrelationEngine, fact: Fact):
     """
-    CORS_WILDCARD_ORIGIN + INSECURE_COOKIE (both NEW checks added to
+    CORS_WILDCARD + INSECURE_COOKIE (both NEW checks added to
     live_browser.py's _monitor_loop in this change) on the same URL =>
     cross-origin session theft is plausible, not just two unrelated low/info
     findings.
     """
     out = []
-    if fact.type == "CORS_WILDCARD_ORIGIN":
+    if fact.type == "CORS_WILDCARD":
         cookies = engine.facts_of_type("INSECURE_COOKIE", fact.url)
         if cookies:
             out.append(_cors_cookie_hyp(fact, cookies[0]))
     elif fact.type == "INSECURE_COOKIE":
-        cors = engine.facts_of_type("CORS_WILDCARD_ORIGIN", fact.url)
+        cors = engine.facts_of_type("CORS_WILDCARD", fact.url)
         if cors:
             out.append(_cors_cookie_hyp(cors[0], fact))
     return out
