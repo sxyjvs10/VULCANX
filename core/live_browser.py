@@ -1677,7 +1677,7 @@ class LiveBrowserInterceptor:
                 """
             suggestions_html += '</div>'
         else:
-            suggestions_html += '<div style="color:#00aa88; text-align:center; padding:20px; font-style:italic; background:rgba(0,50,40,0.3); border:1px dashed #005544; border-radius:6px;">No dynamic correlations mapped yet. Continue exercising application state...</div>'
+            suggestions_html += '<div style="color:#00aa88; text-align:center; padding:15px; font-style:italic; background:rgba(0,50,40,0.3); border:1px dashed #005544; border-radius:6px; font-size:11px;"><i>AI Engine is analyzing individual findings. Exercise more of the application state to discover complex multi-stage attack chains...</i></div>'
 
         # Generate Context-Aware AI Suggestions Based on Current Findings
         # TYPE STRINGS must exactly match what _analyze_cdp_response / analyzer.scan() emit.

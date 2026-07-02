@@ -283,21 +283,23 @@ CRITICAL_SECRET_TYPES = {"STRIPE_API_KEY", "GITHUB_PAT_TOKEN", "PRIVATE_KEY", "A
 @rule("R-XSS-NOHEADER", weight=1.0)
 def rule_taint_plus_no_csp(engine: CorrelationEngine, fact: Fact):
     """
-    DOM_XSS_STATIC_TAINT (engine.py _check_dom_xss_taint) + MISSING_SECURITY_HEADER
-    mentioning CSP on the same URL (live_browser.py header check) => the static
-    taint guess has no compensating control if the sanitizer assumption is wrong.
+    DOM_SINK / TAINT + MISSING_CONTENT_SECURITY_POLICY on the same URL => 
+    the static/runtime taint has no compensating control if the sanitizer assumption is wrong.
     """
+    xss_types = {"DOM_XSS_STATIC_TAINT", "CONFIRMED_RUNTIME_DOM_SINK_INNERHTML", "CONFIRMED_RUNTIME_DOM_SINK_FUNCTION_CTOR", "DOM_SINK_EVAL"}
     out = []
-    if fact.type == "DOM_XSS_STATIC_TAINT":
-        csp_missing = [f for f in engine.facts_of_type("MISSING_SECURITY_HEADER", fact.url)
-                       if "Content-Security-Policy" in f.match]
+    
+    if fact.type in xss_types:
+        csp_missing = engine.facts_of_type("MISSING_CONTENT_SECURITY_POLICY", fact.url)
         if csp_missing:
             out.append(_xss_csp_hyp(fact, csp_missing[0]))
-    elif fact.type == "MISSING_SECURITY_HEADER" and "Content-Security-Policy" in fact.match:
-        taint_facts = engine.facts_of_type("DOM_XSS_STATIC_TAINT", fact.url)
-        for t in taint_facts:
-            out.append(_xss_csp_hyp(t, fact))
+    elif fact.type == "MISSING_CONTENT_SECURITY_POLICY":
+        for t in xss_types:
+            taints = engine.facts_of_type(t, fact.url)
+            for taint in taints:
+                out.append(_xss_csp_hyp(taint, fact))
     return out
+
 
 
 def _xss_csp_hyp(taint: Fact, csp: Fact) -> VulnHypothesis:
@@ -317,12 +319,10 @@ def _xss_csp_hyp(taint: Fact, csp: Fact) -> VulnHypothesis:
 @rule("R-JWT-NONE", weight=1.0)
 def rule_jwt_alg_none(engine: CorrelationEngine, fact: Fact):
     """
-    JWT_TOKEN (engine.py L121-126, L358-377). engine.py already bumps the raw
-    finding's severity to CRITICAL when alg=none is detected (sets
-    data['severity']='CRITICAL' in-place) but doesn't separately flag the
-    *implication* (forgeable auth) as its own actionable hypothesis with steps.
+    JSON_WEB_TOKEN (engine.py). Flags the implication of forgeable auth 
+    if 'none' algorithm is detected.
     """
-    if fact.type != "JWT_TOKEN":
+    if fact.type not in {"JWT_TOKEN", "JSON_WEB_TOKEN"}:
         return []
     if "none" not in fact.raw.get("description", "").lower() and "none" not in fact.match.lower():
         return []
