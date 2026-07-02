@@ -18,35 +18,51 @@ container.innerHTML = '';
                 var items = [];
                 
                 // Cookies
-                if (document.cookie) {
-                    document.cookie.split(';').forEach(c => {
-                        var parts = c.split('=');
-                        items.push({
-                            source: 'Cookie',
-                            key: parts[0] ? parts[0].trim() : '',
-                            value: parts.slice(1).join('=')
+                try {
+                    if (document.cookie) {
+                        document.cookie.split(';').forEach(c => {
+                            var parts = c.split('=');
+                            items.push({
+                                source: 'Cookie',
+                                key: parts[0] ? parts[0].trim() : '',
+                                value: parts.slice(1).join('=')
+                            });
                         });
-                    });
+                    }
+                } catch(e) {
+                    items.push({source: 'Cookie', key: 'Error', value: 'Access denied: ' + e.message});
                 }
                 
                 // LocalStorage
-                for (var i = 0; i < localStorage.length; i++) {
-                    var k = localStorage.key(i);
-                    items.push({
-                        source: 'Local',
-                        key: k,
-                        value: localStorage.getItem(k)
-                    });
+                try {
+                    if (window.localStorage) {
+                        for (var i = 0; i < localStorage.length; i++) {
+                            var k = localStorage.key(i);
+                            items.push({
+                                source: 'Local',
+                                key: k,
+                                value: localStorage.getItem(k)
+                            });
+                        }
+                    }
+                } catch(e) {
+                    items.push({source: 'Local', key: 'Error', value: 'Access denied: ' + e.message});
                 }
 
                 // SessionStorage
-                for (var i = 0; i < sessionStorage.length; i++) {
-                    var k = sessionStorage.key(i);
-                    items.push({
-                        source: 'Session',
-                        key: k,
-                        value: sessionStorage.getItem(k)
-                    });
+                try {
+                    if (window.sessionStorage) {
+                        for (var i = 0; i < sessionStorage.length; i++) {
+                            var k = sessionStorage.key(i);
+                            items.push({
+                                source: 'Session',
+                                key: k,
+                                value: sessionStorage.getItem(k)
+                            });
+                        }
+                    }
+                } catch(e) {
+                    items.push({source: 'Session', key: 'Error', value: 'Access denied: ' + e.message});
                 }
                 
                 if (items.length === 0) {
