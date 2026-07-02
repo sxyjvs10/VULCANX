@@ -1121,6 +1121,11 @@ class LiveBrowserInterceptor:
                 self.analyzer.scanned_urls = set()
                 result = {'status': 'ok'}
 
+            # ── Clear DOM Sinks ───────────────────────────────────────────────
+            elif action == 'clear_dom_sinks':
+                self.live_dom_sinks.clear()
+                result = {'status': 'ok'}
+
             # ── VPN / proxy ───────────────────────────────────────────────────
             elif action == 'enable_tor':
                 if self._api_server:

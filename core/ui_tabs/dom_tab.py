@@ -36,7 +36,8 @@ container.innerHTML = '';
                 }
 
                 var clearDomBtn = document.createElement('button');
-                clearDomBtn.innerText = 'Clear';
+                clearDomBtn.type = 'button';
+                clearDomBtn.innerText = '🗑️ Clear DOM Sinks';
                 clearDomBtn.style.marginTop = '10px';
                 clearDomBtn.style.width = '100%';
                 clearDomBtn.style.padding = '8px';
@@ -46,6 +47,7 @@ container.innerHTML = '';
                 clearDomBtn.style.cursor = 'pointer';
                 clearDomBtn.style.borderRadius = '4px';
                 clearDomBtn.onclick = function() {
+                    window.__vulcanx_cmd = '{"action": "clear_dom_sinks"}';
                     window.__vulcanx_state.domSinks = [];
                     window.__vulcanx_render();
                 };
