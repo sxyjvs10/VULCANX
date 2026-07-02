@@ -252,6 +252,15 @@ WIDGET_INIT_JS_PART_1 = r"""
             tabBar.style.display = 'flex';
             tabBar.style.background = '#11111a';
             tabBar.style.borderBottom = '1px solid #222';
+            tabBar.style.overflowX = 'auto';
+            tabBar.style.whiteSpace = 'nowrap';
+            // Hide scrollbar but keep functionality
+            tabBar.style.msOverflowStyle = 'none';  // IE and Edge
+            tabBar.style.scrollbarWidth = 'none';   // Firefox
+            
+            var styleSheet = document.createElement('style');
+            styleSheet.innerText = '#vulcanx-widget .vx-tab-btn { flex-shrink: 0; }';
+            document.head.appendChild(styleSheet);
             
             var tabs = ['vulnerabilities', 'traffic', 'forms', 'storage', 'map', 'payloads', 'dom', 'scope', 'vpn', 'report'];
             var tabLabels = ['Findings', 'Traffic', 'Forms', 'Storage', 'LinkMap', 'Payloads', 'DOM Sinks', 'Scope', 'VPN', 'Report'];
