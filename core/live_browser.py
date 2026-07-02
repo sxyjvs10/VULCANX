@@ -648,6 +648,7 @@ class LiveBrowserInterceptor:
         self.live_findings = []
         self.live_traffic = []
         self.live_hypotheses = []
+        self.live_dom_sinks = []
         from core.correlate import CorrelationEngine
         self.correlator = CorrelationEngine()
         self.current_url = ""
@@ -817,6 +818,16 @@ class LiveBrowserInterceptor:
 
             if finding not in self.analyzer.findings:
                 self.analyzer.findings.append(finding)
+            
+            # Also append to the raw sink log for the DOM tab
+            sink_entry = {
+                'sink': kind,
+                'value': detail,
+                'url': url
+            }
+            if sink_entry not in self.live_dom_sinks:
+                self.live_dom_sinks.append(sink_entry)
+
             self._inject_ui_alert(finding)
 
     # -- Traffic monitoring --------------------------------------------------------
