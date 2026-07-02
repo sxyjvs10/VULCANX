@@ -28,6 +28,144 @@ class Analyzer:
         
         self.patterns = {
 
+            'DOM_XSS_INNERHTML': {
+                'regex': r'\.innerHTML\s*=\s*[^"\'`][^;]*',
+                'severity': 'HIGH',
+                'description': 'Potential DOM XSS via innerHTML assignment.',
+                'remediation': 'Use textContent instead of innerHTML, or sanitize the input using a library like DOMPurify.'
+            },
+            'DOM_XSS_OUTERHTML': {
+                'regex': r'\.outerHTML\s*=\s*[^"\'`][^;]*',
+                'severity': 'HIGH',
+                'description': 'Potential DOM XSS via outerHTML assignment.',
+                'remediation': 'Avoid using outerHTML with untrusted data.'
+            },
+            'DOM_XSS_DOC_WRITE': {
+                'regex': r'document\.write(?:ln)?\s*\(\s*[^"\'`][^)]*\)',
+                'severity': 'HIGH',
+                'description': 'Potential DOM XSS via document.write().',
+                'remediation': 'Avoid document.write() for dynamic content.'
+            },
+            'DOM_XSS_EVAL': {
+                'regex': r'eval\s*\(\s*[^)]+\)',
+                'severity': 'CRITICAL',
+                'description': 'Potential DOM XSS or Code Injection via eval().',
+                'remediation': 'Do not use eval() with untrusted data.'
+            },
+            'DOM_XSS_SETTIMEOUT': {
+                'regex': r'setTimeout\s*\(\s*[^"\'`][^,]*\s*,',
+                'severity': 'HIGH',
+                'description': 'Potential DOM XSS via setTimeout() taking a string instead of a function.',
+                'remediation': 'Pass a function reference to setTimeout, not a string.'
+            },
+            'DOM_XSS_SETINTERVAL': {
+                'regex': r'setInterval\s*\(\s*[^"\'`][^,]*\s*,',
+                'severity': 'HIGH',
+                'description': 'Potential DOM XSS via setInterval() taking a string instead of a function.',
+                'remediation': 'Pass a function reference to setInterval, not a string.'
+            },
+            'DOM_XSS_NEW_FUNCTION': {
+                'regex': r'new\s+Function\s*\(\s*[^\)]+\)',
+                'severity': 'CRITICAL',
+                'description': 'Potential DOM XSS via new Function().',
+                'remediation': 'Avoid dynamically creating functions with untrusted data.'
+            },
+            'OPEN_REDIRECT_LOCATION_HASH': {
+                'regex': r'window\.location(?:\.href|\.replace|\.assign)?\s*=\s*.*location\.hash',
+                'severity': 'HIGH',
+                'description': 'Potential DOM-based Open Redirect reading from location.hash.',
+                'remediation': 'Validate the URL before redirecting.'
+            },
+            'OPEN_REDIRECT_LOCATION_SEARCH': {
+                'regex': r'window\.location(?:\.href|\.replace|\.assign)?\s*=\s*.*location\.search',
+                'severity': 'HIGH',
+                'description': 'Potential DOM-based Open Redirect reading from location.search.',
+                'remediation': 'Validate the URL before redirecting.'
+            },
+            'POST_MESSAGE_NO_ORIGIN_CHECK': {
+                'regex': r'window\.addEventListener\s*\(\s*[\'"]message[\'"]\s*,\s*(?:function|\([^)]*\)\s*=>)\s*\{(?![^}]+origin)',
+                'severity': 'HIGH',
+                'description': 'postMessage listener without explicit origin check detected.',
+                'remediation': 'Always check event.origin against a strict allowlist before processing message data.'
+            },
+            'INSECURE_RANDOM_MATH_RANDOM': {
+                'regex': r'Math\.random\(\)',
+                'severity': 'LOW',
+                'description': 'Insecure randomness via Math.random().',
+                'remediation': 'Use window.crypto.getRandomValues() for security-critical randomness (e.g. tokens, keys).'
+            },
+            'LOCAL_STORAGE_SENSITIVE': {
+                'regex': r'(?:localStorage|sessionStorage)\.setItem\s*\(\s*[\'"](?:password|secret|token|auth|key|session)[\'"]',
+                'severity': 'MEDIUM',
+                'description': 'Storing sensitive information in Web Storage.',
+                'remediation': 'Store sensitive session data in HttpOnly, Secure cookies instead.'
+            },
+            'JSONP_CALLBACK_IN_URL': {
+                'regex': r'\?(?:callback|cb|jsonp)=\w+',
+                'severity': 'MEDIUM',
+                'description': 'JSONP callback parameter found in URL string.',
+                'remediation': 'Ensure the callback is strictly validated (alphanumeric only) and the response has application/javascript Content-Type and X-Content-Type-Options: nosniff.'
+            },
+            'CLIENT_SIDE_SQLI': {
+                'regex': r'SELECT\s+.*?\s+FROM\s+.*?(?:WHERE\s+.*?=)?\s*[\'"]?\s*\+',
+                'severity': 'CRITICAL',
+                'description': 'Potential client-side SQL injection / raw query construction.',
+                'remediation': 'Never construct SQL queries on the client or use unparameterized strings.'
+            },
+            'WEBSQL_INJECTION': {
+                'regex': r'(?:executeSql|db\.transaction)\s*\(\s*[\'"](?:SELECT|INSERT|UPDATE|DELETE)[^,]+[\'"]\s*\+',
+                'severity': 'HIGH',
+                'description': 'Potential WebSQL / SQLite injection.',
+                'remediation': 'Use parameterized queries (?) for local database operations.'
+            },
+            'COMMAND_INJECTION_NODE': {
+                'regex': r'(?:child_process\.)?(?:exec|execSync|spawn|spawnSync)\s*\(\s*[^,)]*\+',
+                'severity': 'CRITICAL',
+                'description': 'Potential OS Command Injection (Node.js/Electron).',
+                'remediation': 'Never concatenate user input into shell commands. Use spawn with an array of arguments, and avoid shell=true.'
+            },
+            'PATH_TRAVERSAL_NODE': {
+                'regex': r'fs\.(?:readFile|readFileSync|createReadStream)\s*\(\s*[^,)]*\+',
+                'severity': 'HIGH',
+                'description': 'Potential Path Traversal / LFI (Node.js/Electron).',
+                'remediation': 'Validate and sanitize file paths using path.basename() or against a strict directory allowlist.'
+            },
+            'XXE_DOMPARSER': {
+                'regex': r'new\s+DOMParser\(\)\.parseFromString\(',
+                'severity': 'MEDIUM',
+                'description': 'XML Parsing detected. Verify if it is vulnerable to XXE (XML External Entity).',
+                'remediation': 'Disable external entities in the XML parser configuration if server-side, or ensure input is sanitized.'
+            },
+            'INSECURE_DESERIALIZATION_EVAL': {
+                'regex': r'JSON\.parse\s*\(\s*.*?\b(?:eval)\b',
+                'severity': 'CRITICAL',
+                'description': 'Insecure Deserialization using eval on parsed JSON.',
+                'remediation': 'Never use eval() on deserialized data.'
+            },
+            'INSECURE_DESERIALIZATION_NODE': {
+                'regex': r'node-serialize\.unserialize\s*\(|yaml\.load\s*\(',
+                'severity': 'CRITICAL',
+                'description': 'Insecure Deserialization detected (node-serialize or js-yaml).',
+                'remediation': 'Use safe loading functions like yaml.safeLoad() or standard JSON.parse().'
+            },
+            'HARDCODED_INTERNAL_IP': {
+                'regex': r'[\'"](?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})[\'"]',
+                'severity': 'LOW',
+                'description': 'Hardcoded Internal IP address detected.',
+                'remediation': 'Internal IP exposure may help attackers map the internal network. Use environment variables.'
+            },
+            'HARDCODED_PASSWORD': {
+                'regex': r'(?i)(?:password|passwd|pwd)\s*[:=]\s*[\'"][^\'"]+[\'"]',
+                'severity': 'HIGH',
+                'description': 'Potential hardcoded password.',
+                'remediation': 'Store passwords securely using environment variables or a secrets manager.'
+            },
+            'GRAPHQL_INTROSPECTION': {
+                'regex': r'__schema\s*\{\s*types|__type\s*\(',
+                'severity': 'MEDIUM',
+                'description': 'GraphQL Introspection query detected.',
+                'remediation': 'Ensure introspection is disabled in production to prevent schema leakage.'
+            },
             'AWS_ACCESS_KEY': {
                 'regex': r'(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}',
                 'severity': 'HIGH',
