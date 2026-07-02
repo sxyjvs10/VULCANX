@@ -698,6 +698,13 @@ class LiveBrowserInterceptor:
         opts.add_argument('--allow-insecure-localhost')
         opts.add_argument('--no-sandbox')
         opts.add_argument('--disable-dev-shm-usage')
+        # ── Disable Chrome's Private Network Access blocking ──────────────────
+        # Without these, fetch() from public pages to 127.0.0.1 is blocked by
+        # Chrome 96+ even when the server sends Access-Control-Allow-Private-Network.
+        opts.add_argument('--disable-features=BlockInsecurePrivateNetworkRequests,PrivateNetworkAccessSendPreflights')
+        # Allow mixed content and cross-origin requests for the widget API calls
+        opts.add_argument('--disable-web-security')
+        opts.add_argument('--allow-running-insecure-content')
 
         try:
             service = ChromeService(ChromeDriverManager().install())

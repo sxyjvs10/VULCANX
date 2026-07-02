@@ -150,10 +150,11 @@ class VulcanXAPIHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Suppress noisy HTTP logs from the console
 
-    # ─── CORS preflight ────────────────────────────────────────────────────────
+    # ─── CORS preflight (handles Chrome's Private Network Access preflight) ─────
     def do_OPTIONS(self):
-        self.send_response(200)
+        self.send_response(204)
         self._add_cors_headers()
+        self.send_header('Content-Length', '0')
         self.end_headers()
 
     # ─── GET endpoints ─────────────────────────────────────────────────────────
@@ -349,9 +350,14 @@ class VulcanXAPIHandler(http.server.BaseHTTPRequestHandler):
 
     # ─── Helpers ───────────────────────────────────────────────────────────────
     def _add_cors_headers(self):
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        """Add CORS + Chrome Private Network Access headers to every response."""
+        self.send_header('Access-Control-Allow-Origin',          '*')
+        self.send_header('Access-Control-Allow-Methods',         'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers',         'Content-Type, Access-Control-Request-Private-Network')
+        # Required for Chrome 96+ Private Network Access policy:
+        # Allows web pages on public origins to fetch from 127.0.0.1
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
+        self.send_header('Vary', 'Origin')
 
     def _send_json(self, obj, status=200):
         body = json.dumps(obj).encode('utf-8')

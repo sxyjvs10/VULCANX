@@ -148,6 +148,7 @@ container.innerHTML = '';
 
                 startBtn.onclick = async function() {
                     var url = urlInput.value.trim() || location.href;
+                    var apiUrl = apiBase() + '/api/spider';
                     var payload = {
                         action: 'start',
                         url: url,
@@ -159,10 +160,10 @@ container.innerHTML = '';
                     startBtn.disabled = true;
                     stopBtn.disabled  = false;
                     progressWrap.style.display = 'block';
-                    spiderStatus.innerHTML = '<span style="color:#ffcc00;">⏳ Starting spider…</span>';
+                    spiderStatus.innerHTML = '<span style="color:#ffcc00;">⏳ Connecting to VulcanX API at ' + apiUrl + ' …</span>';
 
                     try {
-                        var r = await fetch(apiBase() + '/api/spider', {
+                        var r = await fetch(apiUrl, {
                             method: 'POST',
                             body: JSON.stringify(payload),
                             headers: {'Content-Type': 'application/json'}
@@ -186,7 +187,8 @@ container.innerHTML = '';
                             } catch(e) {}
                         }, 2000);
                     } catch(e) {
-                        spiderStatus.innerHTML = '<span style="color:#ff4444;">❌ ' + e + '</span>';
+                        spiderStatus.innerHTML = '<span style="color:#ff4444;">❌ Failed to reach API: ' + apiUrl + '<br>' + e + '</span>' +
+                            '<br><span style="color:#888;font-size:9px;">Port: ' + (window.__vulcanx_api_port||\'not set\') + '</span>';
                         startBtn.disabled = false; stopBtn.disabled = true;
                     }
                 };
